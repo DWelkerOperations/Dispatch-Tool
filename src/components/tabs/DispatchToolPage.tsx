@@ -2,12 +2,15 @@ import { useMemo, useState } from "react";
 import { mockDrivers } from "../../data/mockDrivers";
 import { mockFlights } from "../../data/mockFlights";
 import { mockHelpers, mockTrucks } from "../../data/mockResources";
+import { planningRules } from "../../data/planningRules";
 import { createDispatchSchedule } from "../../engine/scheduler";
-import type { FlightAssignment, ResourceInputs } from "../../types/dispatch";
+import type { FlightAssignment, OperationType, ResourceInputs } from "../../types/dispatch";
+import { OperationToggle } from "../ui/OperationToggle";
 import { Panel } from "../ui/Panel";
 import { ExceptionTable, PushTable, ScheduleSummaryCards } from "./scheduleUi";
 
 export function DispatchToolPage({ flights = mockFlights }: { flights?: FlightAssignment[] }) {
+  const [operationType, setOperationType] = useState<OperationType>("mainline");
   const [draftDrivers, setDraftDrivers] = useState(4);
   const [draftHelpers, setDraftHelpers] = useState(1);
   const [draftTrucks, setDraftTrucks] = useState(3);
@@ -18,15 +21,20 @@ export function DispatchToolPage({ flights = mockFlights }: { flights?: FlightAs
   });
 
   const result = useMemo(
-    () => createDispatchSchedule(flights, mockDrivers, mockHelpers, mockTrucks, resources),
-    [flights, resources],
+    () => createDispatchSchedule(flights, mockDrivers, mockHelpers, mockTrucks, resources, { operationType, rules: planningRules }),
+    [flights, operationType, resources],
   );
 
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-ink">Day-to-Day Dispatch Tool</h2>
-        <p className="mt-1 text-sm text-slate-500">Live operations mode. Enter available resources to see the best achievable push plan.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-ink">Day-to-Day Dispatch Tool</h2>
+            <p className="mt-1 text-sm text-slate-500">Live operations mode. Enter available resources to see the best achievable push plan.</p>
+          </div>
+          <OperationToggle value={operationType} onChange={setOperationType} />
+        </div>
       </div>
       <Panel className="p-5">
         <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-4">

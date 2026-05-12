@@ -1,37 +1,33 @@
-import type { Driver, Flight, FlightAssignment, Helper, Push, ResourceInputs, ScheduleException, ScheduleResult, ServiceType, Truck } from "../types/dispatch";
-
-const BLOCK_MINUTES = 5;
-const PREP_MINUTES = 20;
-const DRIVE_OUT_MINUTES = 15;
-const SERVICE_MINUTES_PER_FLIGHT = 15;
-const RETURN_MINUTES = 15;
-const LOAD_WINDOW_BEFORE_ETD = 120;
-const LOAD_WINDOW_END_BEFORE_ETD = 35;
-const MAX_FLIGHTS_PER_PUSH = 3;
-const GROUP_WINDOW_MINUTES = 35;
+import { planningRules } from "../data/planningRules";
+import type { AircraftCategory, Driver, Flight, FlightAssignment, Helper, OperationType, PlanningRules, Push, ResourceInputs, ScheduleException, ScheduleResult, ServiceType, Truck } from "../types/dispatch";
 
 type ResourcePoolItem = { id: string; availableAt: number };
+type ScheduleOptions = { operationType?: OperationType; rules?: PlanningRules };
 
-export function createPlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[]): ScheduleResult {
-  const flights = toFlights(assignments);
-  const candidatePushes = buildCandidatePushes(flights);
-  const scheduledPushes = assignUnlimitedResources(candidatePushes, drivers, helpers, trucks);
+export function createPlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], options: ScheduleOptions = {}): ScheduleResult {
+  const rules = options.rules ?? planningRules;
+  const flights = toFlights(assignments, rules, options.operationType);
+  const candidatePushes = buildCandidatePushes(flights, rules);
+  const scheduledPushes = assignUnlimitedResources(candidatePushes, drivers, helpers, trucks, rules);
   return buildResult("planning", scheduledPushes, []);
 }
 
-export function createDispatchSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], resources: ResourceInputs): ScheduleResult {
-  const flights = toFlights(assignments);
-  const candidatePushes = buildCandidatePushes(flights);
+export function createDispatchSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], resources: ResourceInputs, options: ScheduleOptions = {}): ScheduleResult {
+  const rules = options.rules ?? planningRules;
+  const flights = toFlights(assignments, rules, options.operationType);
+  const candidatePushes = buildCandidatePushes(flights, rules);
   const exceptions: ScheduleException[] = [];
-  const scheduledPushes = assignLimitedResources(candidatePushes, drivers.slice(0, resources.availableDrivers), helpers.slice(0, resources.availableHelpers), trucks.slice(0, resources.availableTrucks), exceptions);
+  const scheduledPushes = assignLimitedResources(candidatePushes, drivers.slice(0, resources.availableDrivers), helpers.slice(0, resources.availableHelpers), trucks.slice(0, resources.availableTrucks), exceptions, rules);
   return buildResult("dispatch", scheduledPushes, exceptions);
 }
 
-function toFlights(assignments: FlightAssignment[]): Flight[] {
+function toFlights(assignments: FlightAssignment[], rules: PlanningRules, operationType?: OperationType): Flight[] {
   return assignments
     .filter((flight) => flight.serviceType !== "break")
     .map((flight) => {
       const etdMinutes = timeToMinutes(flight.etd);
+      const aircraftCategory = categorizeAircraft(flight.aircraft);
+      const flightOperationType: OperationType = aircraftCategory === "regional" ? "express" : "mainline";
       return {
         id: flight.id,
         flightNumber: flight.flightNumber,
@@ -41,15 +37,19 @@ function toFlights(assignments: FlightAssignment[]): Flight[] {
         inboundEta: flight.inboundEta,
         aircraft: flight.aircraft,
         serviceType: flight.serviceType,
-        loadWindowStart: minutesToTime(etdMinutes - LOAD_WINDOW_BEFORE_ETD),
-        loadWindowEnd: minutesToTime(etdMinutes - LOAD_WINDOW_END_BEFORE_ETD),
-        workloadUnits: workloadFor(flight.serviceType),
+        aircraftCategory,
+        operationType: flightOperationType,
+        loadWindowStart: minutesToTime(etdMinutes - rules.earliestCateringBeforeDepartureMinutes),
+        loadWindowEnd: minutesToTime(etdMinutes - rules.targetCompletionBeforeDepartureMinutes),
+        hardLatestCompletion: minutesToTime(etdMinutes - rules.hardMinimumCompletionBeforeDepartureMinutes),
+        workloadUnits: workloadFor(flight.serviceType, aircraftCategory),
       };
     })
+    .filter((flight) => !operationType || flight.operationType === operationType)
     .sort((a, b) => timeToMinutes(a.etd) - timeToMinutes(b.etd));
 }
 
-function buildCandidatePushes(flights: Flight[]): Push[] {
+function buildCandidatePushes(flights: Flight[], rules: PlanningRules): Push[] {
   const pushes: Push[] = [];
   let current: Flight[] = [];
 
@@ -62,45 +62,50 @@ function buildCandidatePushes(flights: Flight[]): Push[] {
     const firstEtd = timeToMinutes(current[0].etd);
     const nextEtd = timeToMinutes(flight.etd);
     const currentWorkload = current.reduce((total, item) => total + item.workloadUnits, 0);
-    const canGroup = current.length < MAX_FLIGHTS_PER_PUSH && nextEtd - firstEtd <= GROUP_WINDOW_MINUTES && currentWorkload + flight.workloadUnits <= 4;
+    const sameOperation = current.every((item) => item.operationType === flight.operationType);
+    const canGroup = sameOperation && current.length < rules.maxFlightsPerPush && nextEtd - firstEtd <= rules.groupWindowMinutes && currentWorkload + flight.workloadUnits <= rules.maxWorkloadUnitsPerPush;
 
     if (canGroup) {
       current.push(flight);
     } else {
-      pushes.push(createPush(pushes.length + 1, current));
+      pushes.push(createPush(pushes.length + 1, current, rules));
       current = [flight];
     }
   }
 
-  if (current.length > 0) pushes.push(createPush(pushes.length + 1, current));
+  if (current.length > 0) pushes.push(createPush(pushes.length + 1, current, rules));
   return pushes;
 }
 
-function createPush(pushNumber: number, flights: Flight[]): Push {
+function createPush(pushNumber: number, flights: Flight[], rules: PlanningRules): Push {
   const earliestLoadEnd = Math.min(...flights.map((flight) => timeToMinutes(flight.loadWindowEnd)));
-  const serviceMinutes = flights.length * SERVICE_MINUTES_PER_FLIGHT;
-  const totalDuration = PREP_MINUTES + DRIVE_OUT_MINUTES + serviceMinutes + RETURN_MINUTES;
-  const departure = snapDown(earliestLoadEnd - DRIVE_OUT_MINUTES - serviceMinutes);
-  const gateService = departure + PREP_MINUTES + DRIVE_OUT_MINUTES;
+  const operationType = flights[0]?.operationType ?? "mainline";
+  const driveOutMinutes = operationType === "express" ? rules.expressDriveOutMinutes : rules.mainlineDriveOutMinutes;
+  const returnMinutes = operationType === "express" ? rules.expressReturnMinutes : rules.mainlineReturnMinutes;
+  const serviceMinutes = flights.reduce((total, flight) => total + rules.serviceMinutesByAircraftCategory[flight.aircraftCategory], 0);
+  const totalDuration = driveOutMinutes + serviceMinutes + returnMinutes;
+  const departure = snapDown(earliestLoadEnd - driveOutMinutes - serviceMinutes, rules);
+  const gateService = departure + driveOutMinutes;
   const returnTime = departure + totalDuration;
-  const needsHelper = flights.length >= 3 || flights.reduce((total, flight) => total + flight.workloadUnits, 0) >= 4;
+  const hasMainlineFlight = flights.some((flight) => flight.operationType === "mainline");
+  const needsHelper = rules.helperRequiredForMainline && hasMainlineFlight;
 
   return { id: `P${String(pushNumber).padStart(3, "0")}`, driverId: null, helperId: needsHelper ? "needed" : null, truckId: null, flights, kitchenDepartureTime: minutesToTime(departure), gateServiceTime: minutesToTime(gateService), returnTime: minutesToTime(returnTime), totalDurationMinutes: totalDuration, exceptionFlags: [] };
 }
 
-function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[]) {
-  return assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), []);
+function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules) {
+  return assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules);
 }
 
-function assignLimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], exceptions: ScheduleException[]) {
-  return assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), exceptions);
+function assignLimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], exceptions: ScheduleException[], rules: PlanningRules) {
+  return assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), exceptions, rules);
 }
 
-function assignPushes(pushes: Push[], driverPool: ResourcePoolItem[], helperPool: ResourcePoolItem[], truckPool: ResourcePoolItem[], exceptions: ScheduleException[]) {
-  return pushes.map((push) => assignResourcesToPush(push, driverPool, helperPool, truckPool, exceptions));
+function assignPushes(pushes: Push[], driverPool: ResourcePoolItem[], helperPool: ResourcePoolItem[], truckPool: ResourcePoolItem[], exceptions: ScheduleException[], rules: PlanningRules) {
+  return pushes.map((push) => assignResourcesToPush(push, driverPool, helperPool, truckPool, exceptions, rules));
 }
 
-function assignResourcesToPush(push: Push, driverPool: ResourcePoolItem[], helperPool: ResourcePoolItem[], truckPool: ResourcePoolItem[], exceptions: ScheduleException[]): Push {
+function assignResourcesToPush(push: Push, driverPool: ResourcePoolItem[], helperPool: ResourcePoolItem[], truckPool: ResourcePoolItem[], exceptions: ScheduleException[], rules: PlanningRules): Push {
   const originalDeparture = timeToMinutes(push.kitchenDepartureTime);
   const driver = earliestAvailable(driverPool);
   const truck = earliestAvailable(truckPool);
@@ -113,13 +118,15 @@ function assignResourcesToPush(push: Push, driverPool: ResourcePoolItem[], helpe
   if (helperNeeded && !helper) markException(assignedPush, exceptions, "Helper needed but unavailable", "helper-shortage", "Assign a helper or split this push into smaller work.");
 
   const resourceReadyTime = Math.max(driver?.availableAt ?? originalDeparture, truck?.availableAt ?? originalDeparture, helperNeeded ? helper?.availableAt ?? originalDeparture : originalDeparture);
-  const actualDeparture = snapUp(Math.max(originalDeparture, resourceReadyTime));
+  const actualDeparture = snapUp(Math.max(originalDeparture, resourceReadyTime), rules);
   const delay = actualDeparture - originalDeparture;
   if (delay > 0) shiftPush(assignedPush, delay);
 
-  const latestLoadEnd = Math.min(...assignedPush.flights.map((flight) => timeToMinutes(flight.loadWindowEnd)));
-  const serviceEnd = timeToMinutes(assignedPush.gateServiceTime) + assignedPush.flights.length * SERVICE_MINUTES_PER_FLIGHT;
-  if (serviceEnd > latestLoadEnd) markException(assignedPush, exceptions, "Food safety/load window risk", "food-safety-window", "Move one flight to another push or add resources.");
+  const targetLoadEnd = Math.min(...assignedPush.flights.map((flight) => timeToMinutes(flight.loadWindowEnd)));
+  const hardLatestCompletion = Math.min(...assignedPush.flights.map((flight) => timeToMinutes(flight.hardLatestCompletion)));
+  const serviceEnd = timeToMinutes(assignedPush.gateServiceTime) + assignedPush.flights.reduce((total, flight) => total + rules.serviceMinutesByAircraftCategory[flight.aircraftCategory], 0);
+  if (serviceEnd > hardLatestCompletion) markException(assignedPush, exceptions, "Unacceptable delay risk", "delayed-flight-risk", "Add resources or rebuild this push. Do not choose a plan that delays a flight.");
+  else if (serviceEnd > targetLoadEnd) markException(assignedPush, exceptions, "Target completion miss", "food-safety-window", "Operationally possible but outside the preferred 30-minute completion target.");
 
   if (driver) { assignedPush.driverId = driver.id; driver.availableAt = timeToMinutes(assignedPush.returnTime); }
   if (truck) { assignedPush.truckId = truck.id; truck.availableAt = timeToMinutes(assignedPush.returnTime); }
@@ -164,7 +171,10 @@ function maxConcurrentPushes(pushes: Push[]) {
   return max;
 }
 
-function workloadFor(serviceType: ServiceType) {
+function workloadFor(serviceType: ServiceType, aircraftCategory: AircraftCategory) {
+  if (aircraftCategory === "widebody") return 2;
+  if (aircraftCategory === "narrowbody") return 1.5;
+  if (aircraftCategory === "regional") return 1;
   if (serviceType === "load-ua") return 1.5;
   if (serviceType === "load-other") return 1.25;
   if (serviceType === "unplanned") return 1.5;
@@ -172,7 +182,14 @@ function workloadFor(serviceType: ServiceType) {
 }
 
 function humanCause(cause: ScheduleException["cause"]) {
-  return { "driver-shortage": "Driver shortage", "helper-shortage": "Helper shortage", "truck-shortage": "Truck shortage", "timing-conflict": "Timing conflict", "food-safety-window": "Food safety window issue" }[cause];
+  return { "driver-shortage": "Driver shortage", "helper-shortage": "Helper shortage", "truck-shortage": "Truck shortage", "timing-conflict": "Timing conflict", "food-safety-window": "Food safety window issue", "delayed-flight-risk": "Unacceptable delay risk" }[cause];
+}
+
+function categorizeAircraft(aircraft: string): AircraftCategory {
+  const code = aircraft.toUpperCase();
+  if (code.includes("777") || code.includes("787") || code.includes("767") || code.includes("330") || code.includes("350")) return "widebody";
+  if (code.includes("E1") || code.includes("E7") || code.includes("CRJ") || code.includes("REGIONAL")) return "regional";
+  return "narrowbody";
 }
 
 export function timeToMinutes(time: string) {
@@ -187,5 +204,5 @@ function minutesToTime(totalMinutes: number) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-function snapDown(minutes: number) { return Math.floor(minutes / BLOCK_MINUTES) * BLOCK_MINUTES; }
-function snapUp(minutes: number) { return Math.ceil(minutes / BLOCK_MINUTES) * BLOCK_MINUTES; }
+function snapDown(minutes: number, rules: PlanningRules) { return Math.floor(minutes / rules.blockMinutes) * rules.blockMinutes; }
+function snapUp(minutes: number, rules: PlanningRules) { return Math.ceil(minutes / rules.blockMinutes) * rules.blockMinutes; }

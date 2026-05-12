@@ -9,6 +9,10 @@ export type AppTab =
   | "dashboard"
   | "thumb-rules";
 
+export type OperationType = "mainline" | "express";
+
+export type AircraftCategory = "regional" | "narrowbody" | "widebody";
+
 export type ServiceType =
   | "load-ua"
   | "load-other"
@@ -68,8 +72,11 @@ export type Flight = {
   inboundEta: string;
   aircraft: string;
   serviceType: ServiceType;
+  aircraftCategory: AircraftCategory;
+  operationType: OperationType;
   loadWindowStart: string;
   loadWindowEnd: string;
+  hardLatestCompletion: string;
   workloadUnits: number;
 };
 
@@ -91,7 +98,7 @@ export type ScheduleException = {
   flightNumber?: string;
   pushId?: string;
   issue: string;
-  cause: "driver-shortage" | "helper-shortage" | "truck-shortage" | "timing-conflict" | "food-safety-window";
+  cause: "driver-shortage" | "helper-shortage" | "truck-shortage" | "timing-conflict" | "food-safety-window" | "delayed-flight-risk";
   recommendedAction: string;
 };
 
@@ -154,10 +161,32 @@ export type StaffMember = {
   id: string;
   name: string;
   role: StaffRole;
+  operationType: OperationType;
   shift: Shift;
   status: StaffStatus;
   assignedPush: string | null;
   notes: string;
+};
+
+export type PlanningRules = {
+  blockMinutes: number;
+  targetCompletionBeforeDepartureMinutes: number;
+  hardMinimumCompletionBeforeDepartureMinutes: number;
+  earliestCateringBeforeDepartureMinutes: number;
+  prepMinutes: number;
+  mainlineDriveOutMinutes: number;
+  expressDriveOutMinutes: number;
+  mainlineReturnMinutes: number;
+  expressReturnMinutes: number;
+  maxFlightsPerPush: number;
+  groupWindowMinutes: number;
+  maxWorkloadUnitsPerPush: number;
+  standardShiftHours: number;
+  lunchMinutes: number;
+  idealLunchBeforeHour: number;
+  serviceMinutesByAircraftCategory: Record<AircraftCategory, number>;
+  helperRequiredForMainline: boolean;
+  priorityOrder: string[];
 };
 
 export type FleetVehicleType = "Box Truck" | "Refrigerated Truck" | "High-Lift Truck" | "Cargo Van" | "Spare Truck";

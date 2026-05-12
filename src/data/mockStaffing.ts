@@ -1,4 +1,4 @@
-import type { StaffMember, StaffRole, StaffStatus } from "../types/dispatch";
+import type { OperationType, StaffMember, StaffRole, StaffStatus } from "../types/dispatch";
 
 const firstNames = [
   "Alex",
@@ -65,6 +65,7 @@ export const staffRoles: StaffRole[] = ["Driver", "Helper"];
 export const mockStaffing: StaffMember[] = Array.from({ length: 200 }, (_, index) => {
   const number = index + 1;
   const role: StaffRole = index % 4 === 0 ? "Helper" : "Driver";
+  const operationType: OperationType = index % 5 === 0 ? "express" : "mainline";
   const shiftStart = shiftStarts[index % shiftStarts.length];
   const status = statusCycle[index % statusCycle.length];
 
@@ -72,6 +73,7 @@ export const mockStaffing: StaffMember[] = Array.from({ length: 200 }, (_, index
     id: `EMP-${String(number).padStart(4, "0")}`,
     name: `${firstNames[index % firstNames.length]} ${lastNames[Math.floor(index / firstNames.length) % lastNames.length]} ${number}`,
     role,
+    operationType,
     shift: {
       start: shiftStart,
       end: addHours(shiftStart, 8),
@@ -79,7 +81,7 @@ export const mockStaffing: StaffMember[] = Array.from({ length: 200 }, (_, index
     },
     status,
     assignedPush: status === "Assigned" || status === "On Push" ? `P-${String((index % 45) + 1).padStart(3, "0")}` : null,
-    notes: role === "Helper" ? "Mock helper roster record" : "Mock driver roster record",
+    notes: `${operationType === "mainline" ? "Mainline" : "Express"} mock ${role.toLowerCase()} roster record`,
   };
 });
 
