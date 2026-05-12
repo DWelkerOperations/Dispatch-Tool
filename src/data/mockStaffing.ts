@@ -23,6 +23,8 @@ const firstNames = [
   "Logan",
 ];
 
+const featuredNames = ["Drew", "Chris", "Micheal", "Erik", "Nicole", "Carmen", "Mackie"];
+
 const lastNames = [
   "Sample",
   "Testman",
@@ -72,7 +74,7 @@ export const mockStaffing: StaffMember[] = Array.from({ length: 200 }, (_, index
 
   return {
     id: `EMP-${String(number).padStart(4, "0")}`,
-    name: `${firstNames[index % firstNames.length]} ${lastNames[Math.floor(index / firstNames.length) % lastNames.length]} ${number}`,
+    name: featuredNames[index] ?? `${firstNames[index % firstNames.length]} ${lastNames[Math.floor(index / firstNames.length) % lastNames.length]} ${number}`,
     role,
     location: locations[index % locations.length],
     operationType,

@@ -36,6 +36,7 @@ export type FlightAssignment = {
   id: string;
   driverId: string | null;
   flightNumber: string;
+  departureDate?: string;
   gate: string;
   start: string;
   end: string;

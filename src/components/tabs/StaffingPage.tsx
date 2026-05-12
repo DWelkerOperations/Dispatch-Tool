@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Clock3, UserCheck, UserX, Users } from "lucide-react";
 import { airportOptions } from "../../data/airports";
 import { mockStaffing, staffRoles, staffStatuses } from "../../data/mockStaffing";
@@ -8,13 +8,17 @@ import { Panel } from "../ui/Panel";
 
 type StaffFilter = "All";
 
-export function StaffingPage() {
+export function StaffingPage({ activeAirport }: { activeAirport: AirportCode }) {
   const [staff, setStaff] = useState<StaffMember[]>(mockStaffing);
-  const [locationFilter, setLocationFilter] = useState<AirportCode | StaffFilter>("All");
+  const [locationFilter, setLocationFilter] = useState<AirportCode | StaffFilter>(activeAirport);
   const [roleFilter, setRoleFilter] = useState<StaffRole | StaffFilter>("All");
   const [operationFilter, setOperationFilter] = useState<OperationType | StaffFilter>("All");
   const [statusFilter, setStatusFilter] = useState<StaffStatus | StaffFilter>("All");
   const [shiftFilter, setShiftFilter] = useState<string>("All");
+
+  useEffect(() => {
+    setLocationFilter(activeAirport);
+  }, [activeAirport]);
 
   const shiftStarts = useMemo(() => Array.from(new Set(staff.map((member) => member.shift.start))), [staff]);
   const filteredStaff = staff.filter((member) => {

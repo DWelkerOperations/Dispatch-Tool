@@ -15,15 +15,18 @@ import type { AirportCode, AppTab, FlightAssignment } from "./types/dispatch";
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("planning");
   const [activeAirport, setActiveAirport] = useState<AirportCode>("ORD");
+  const [activeDate, setActiveDate] = useState("2026-01-23");
   const [scheduleFlights, setScheduleFlights] = useState<FlightAssignment[]>(mockFlights);
   const [importedFileName, setImportedFileName] = useState<string>();
-  const visibleFlights = scheduleFlights.filter((flight) => (flight.originAirport ?? "ORD") === activeAirport);
+  const visibleFlights = scheduleFlights.filter((flight) => (flight.originAirport ?? "ORD") === activeAirport && (flight.departureDate ?? "2026-01-23") === activeDate);
 
   function handleScheduleImport(flights: FlightAssignment[], fileName: string) {
     setScheduleFlights(flights);
     setImportedFileName(fileName);
     const firstImportedAirport = flights.find((flight) => flight.originAirport)?.originAirport;
+    const firstImportedDate = flights.find((flight) => flight.departureDate)?.departureDate;
     if (firstImportedAirport) setActiveAirport(firstImportedAirport);
+    if (firstImportedDate) setActiveDate(firstImportedDate);
     setActiveTab("planning");
   }
 
@@ -38,11 +41,11 @@ export default function App() {
       onScheduleImport={handleScheduleImport}
       onTabChange={setActiveTab}
     >
-      {activeTab === "planning" && <PlanningToolPage flights={visibleFlights} />}
-      {activeTab === "dispatch" && <DispatchToolPage flights={visibleFlights} />}
+      {activeTab === "planning" && <PlanningToolPage flights={visibleFlights} selectedDate={activeDate} onDateChange={setActiveDate} />}
+      {activeTab === "dispatch" && <DispatchToolPage flights={visibleFlights} selectedDate={activeDate} onDateChange={setActiveDate} />}
       {activeTab === "timeline" && <DispatcherTimeline flights={visibleFlights} />}
-      {activeTab === "staffing" && <StaffingPage />}
-      {activeTab === "fleet" && <FleetPage />}
+      {activeTab === "staffing" && <StaffingPage activeAirport={activeAirport} />}
+      {activeTab === "fleet" && <FleetPage activeAirport={activeAirport} />}
       {activeTab === "exceptions" && <ExceptionsPage />}
       {activeTab === "tour-sheet" && <TourSheetPage />}
       {activeTab === "dashboard" && <DashboardPage />}

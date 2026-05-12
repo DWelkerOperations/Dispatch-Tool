@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Truck, Wrench } from "lucide-react";
 import { airportOptions } from "../../data/airports";
 import { fleetVehicleSizes, fleetVehicleStatuses, fleetVehicleTypes, mockFleet } from "../../data/mockFleet";
@@ -8,12 +8,16 @@ import { Panel } from "../ui/Panel";
 
 type FleetFilter = "All";
 
-export function FleetPage() {
+export function FleetPage({ activeAirport }: { activeAirport: AirportCode }) {
   const [fleet, setFleet] = useState<FleetVehicle[]>(mockFleet);
-  const [locationFilter, setLocationFilter] = useState<AirportCode | FleetFilter>("All");
+  const [locationFilter, setLocationFilter] = useState<AirportCode | FleetFilter>(activeAirport);
   const [typeFilter, setTypeFilter] = useState<FleetVehicleType | FleetFilter>("All");
   const [statusFilter, setStatusFilter] = useState<FleetVehicleStatus | FleetFilter>("All");
   const [sizeFilter, setSizeFilter] = useState<FleetVehicle["size"] | FleetFilter>("All");
+
+  useEffect(() => {
+    setLocationFilter(activeAirport);
+  }, [activeAirport]);
 
   const filteredFleet = useMemo(() => fleet.filter((vehicle) => {
     const locationMatches = locationFilter === "All" || vehicle.location === locationFilter;

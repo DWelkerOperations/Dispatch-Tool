@@ -60,6 +60,7 @@ function toFlightAssignment(row: ScheduleRow, index: number): FlightAssignment {
     id: `import-${index + 1}`,
     driverId: null,
     flightNumber: `${row.airline}${row.flightNumber}`,
+    departureDate: normalizeDate(row.departureDate),
     gate: row.destination || "TBD",
     start,
     end,
@@ -78,6 +79,23 @@ function normalizeAirport(value: string): AirportCode | undefined {
   const code = value.trim().toUpperCase();
   if (["ORD", "SEA", "DFW", "DEN", "LAX", "IAH"].includes(code)) return code as AirportCode;
   return undefined;
+}
+
+function normalizeDate(value: string) {
+  const date = value.trim();
+  const slashDate = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashDate) {
+    const [, month, day, year] = slashDate;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  const isoDate = date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoDate) {
+    const [, year, month, day] = isoDate;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  return date;
 }
 
 function cellText(value: unknown) {

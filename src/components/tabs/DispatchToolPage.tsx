@@ -9,7 +9,13 @@ import { OperationToggle } from "../ui/OperationToggle";
 import { Panel } from "../ui/Panel";
 import { ExceptionTable, PushTable, ScheduleSummaryCards } from "./scheduleUi";
 
-export function DispatchToolPage({ flights = mockFlights }: { flights?: FlightAssignment[] }) {
+type DispatchToolPageProps = {
+  flights?: FlightAssignment[];
+  selectedDate: string;
+  onDateChange: (date: string) => void;
+};
+
+export function DispatchToolPage({ flights = mockFlights, selectedDate, onDateChange }: DispatchToolPageProps) {
   const [operationType, setOperationType] = useState<OperationType>("mainline");
   const [draftDrivers, setDraftDrivers] = useState(4);
   const [draftHelpers, setDraftHelpers] = useState(1);
@@ -33,7 +39,10 @@ export function DispatchToolPage({ flights = mockFlights }: { flights?: FlightAs
             <h2 className="text-2xl font-semibold tracking-tight text-ink">Day-to-Day Dispatch Tool</h2>
             <p className="mt-1 text-sm text-slate-500">Live operations mode. Enter available resources to see the best achievable push plan.</p>
           </div>
-          <OperationToggle value={operationType} onChange={setOperationType} />
+          <div className="flex flex-wrap items-center gap-3">
+            <DateFilter value={selectedDate} onChange={onDateChange} />
+            <OperationToggle value={operationType} onChange={setOperationType} />
+          </div>
         </div>
       </div>
       <Panel className="p-5">
@@ -54,6 +63,20 @@ export function DispatchToolPage({ flights = mockFlights }: { flights?: FlightAs
       <PushTable result={result} />
       <ExceptionTable exceptions={result.exceptions} />
     </div>
+  );
+}
+
+function DateFilter({ value, onChange }: { value: string; onChange: (date: string) => void }) {
+  return (
+    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+      Operation Date
+      <input
+        type="date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="bg-transparent text-sm font-semibold text-ink outline-none"
+      />
+    </label>
   );
 }
 
