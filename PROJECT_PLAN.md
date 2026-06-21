@@ -1,5 +1,9 @@
 # Dispatch Tool Project Plan
 
+## v1.0 Status
+
+Dispatch Tool v1.0 is the stable generic dispatch/resource planner prototype baseline, anchored at commit `9cd1e6f` (`Stabilize generic dispatch planner prototype`). Treat v1.0 as the current return point for future product work, not as a finished production system.
+
 ## Purpose
 
 Build a modern, frontend-only prototype for airline catering dispatch and transportation resource planning. This replaces an Excel-based planning workflow with a visual guide that imports flight schedules, applies thumb rules, and recommends driver, helper, and truck coverage.
@@ -13,15 +17,31 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 - Desktop-first layout for transportation planning review.
 - Primary focus is the Resource Guide.
 - PDX June 11, 2026 and ORD May 14, 2026 are sample/reference schedules only. The tool should stay generic across sites.
+- Generic site behavior is configured through `planningRules.siteOverrides`.
+- Scheduler tests exist and v1.0 passes `pnpm typecheck`, `pnpm test`, and `pnpm build`.
 
 ## Current Screens
 
 - Resource Guide: imported schedule, applied thumb rules, recommended resource starts, pairing quality, timing key, and planning timeline.
 - Planning Tool: driver rows, shift times, timeline pucks, hover details, and pairing output.
+- Dispatch Tool: load planning results or recalculate pairings from available driver/helper/truck counts.
+- Staffing: sample CDL roster and shift review.
+- Fleet: sample fleet master list and status filters.
 - Exceptions: mock operational risks such as overtime, missing lunch, late load risk, truck conflict, and unplanned flights.
 - Tour Sheet: print-friendly operational assignment table.
 - Dashboard: mock KPI overview.
 - Thumb Rules: mock settings/admin controls for planning assumptions.
+
+## v1.0 Limitations
+
+- No backend or database.
+- No persistence across browser sessions.
+- No web authentication.
+- No production deployment pipeline.
+- Driver iPhone app is not integrated with the web app.
+- Apple TV dashboard is not integrated with the web app.
+- Internal `kitchen*` model field names remain for compatibility; see `docs/model-compatibility.md`.
+- Scheduler test coverage is useful but not exhaustive.
 
 ## Near-Term Priorities
 
@@ -58,3 +78,12 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 - Work from the GitHub-connected local folder: `/Users/drewwelker/Documents/Codex Projects/Dispatch Tool/Dispatch-Tool`.
 - Keep changes small and build after each meaningful step.
 - Push stable checkpoints to GitHub.
+
+## Recommended v1.0 Tag
+
+After committing the v1.0 documentation alignment:
+
+```bash
+git tag -a v1.0 -m "Dispatch Tool v1.0 - Stable generic dispatch planner baseline"
+git push origin v1.0
+```
