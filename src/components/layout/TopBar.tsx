@@ -1,57 +1,86 @@
-import { CalendarDays, ChevronDown, Users, Truck, Activity } from "lucide-react";
+import { normalizeAirportCode, sampleAirportOptions } from "../../data/airports";
+import type { ReferenceSchedule } from "../../data/referenceSchedules";
 import { ScheduleImporter } from "../import/ScheduleImporter";
-import { KpiCard } from "../ui/KpiCard";
-import { TabNav } from "./TabNav";
-import type { AppTab, FlightAssignment } from "../../types/dispatch";
+import type { AirportCode, FlightAssignment } from "../../types/dispatch";
 
 type TopBarProps = {
-  activeTab: AppTab;
+  activeAirport: AirportCode;
   importedFileName?: string;
   importedFlightCount?: number;
+  referenceSchedules: ReferenceSchedule[];
+  selectedReferenceScheduleId: string;
+  visibleFlightCount: number;
+  onAirportChange: (airport: AirportCode) => void;
+  onReferenceScheduleLoad: (schedule: ReferenceSchedule) => void;
+  onScheduleClear: () => void;
   onScheduleImport: (flights: FlightAssignment[], fileName: string) => void;
-  onTabChange: (tab: AppTab) => void;
 };
 
-export function TopBar({ activeTab, importedFileName, importedFlightCount, onScheduleImport, onTabChange }: TopBarProps) {
+export function TopBar({
+  activeAirport,
+  importedFileName,
+  importedFlightCount,
+  referenceSchedules,
+  selectedReferenceScheduleId,
+  visibleFlightCount,
+  onAirportChange,
+  onReferenceScheduleLoad,
+  onScheduleClear,
+  onScheduleImport,
+}: TopBarProps) {
+  const scheduleLabel = importedFileName
+    ? `Active Schedule: ${importedFileName} · ${visibleFlightCount} ${activeAirport} flights shown of ${importedFlightCount} loaded`
+    : `Active Schedule: Sample ${activeAirport} flight schedule`;
+
   return (
     <header className="no-print border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur">
-      <div className="mb-4 flex items-center justify-between gap-6">
+      <div className="mb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight text-ink">Driver Pairing Planner</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">Resource Planner</h1>
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-sm font-medium text-slate-500">ORD</span>
+            <span className="text-sm font-medium text-slate-500">{activeAirport}</span>
           </div>
-          <p className="mt-1 text-sm text-slate-500">Friday, Jan 23, 2026 · Morning dispatch plan</p>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          <KpiCard label="Drivers Required" value="24" icon={<Users size={19} />} />
-          <KpiCard label="Max Trucks Needed" value="18" icon={<Truck size={19} />} />
-          <KpiCard label="Flights Covered" value="156" icon={<Activity size={19} />} />
-          <KpiCard label="Avg Utilization" value="71%" icon={<Activity size={19} />} />
+          <p className="mt-1 text-sm text-slate-500">{scheduleLabel}</p>
         </div>
       </div>
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 shadow-sm">
-            <CalendarDays size={18} />
-            Jan 23, 2026
-            <ChevronDown size={16} />
-          </button>
-          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 shadow-sm">
-            Scenario 1 · Default Rules
-            <ChevronDown size={16} />
-          </button>
-          <ScheduleImporter onImport={onScheduleImport} />
-          {importedFileName && (
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-              {importedFlightCount} imported · {importedFileName}
-            </div>
-          )}
-        </div>
-        <div className="flex justify-end">
-          <TabNav activeTab={activeTab} onTabChange={onTabChange} />
-        </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+          Site
+          <select
+            value={activeAirport}
+            onChange={(event) => {
+              const airport = normalizeAirportCode(event.target.value);
+              if (airport) onAirportChange(airport);
+            }}
+            className="bg-transparent text-sm font-semibold text-ink outline-none"
+          >
+            {!sampleAirportOptions.includes(activeAirport) && <option value={activeAirport}>{activeAirport}</option>}
+            {sampleAirportOptions.map((airport) => <option key={airport} value={airport}>{airport}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm">
+          Reference File
+          <select
+            value={selectedReferenceScheduleId}
+            onChange={(event) => {
+              const schedule = referenceSchedules.find((item) => item.id === event.target.value);
+              if (schedule) onReferenceScheduleLoad(schedule);
+            }}
+            className="bg-transparent text-sm font-semibold text-ink outline-none"
+          >
+            <option value="">Imported / custom</option>
+            {referenceSchedules.map((schedule) => <option key={schedule.id} value={schedule.id}>{schedule.label}</option>)}
+          </select>
+        </label>
+        <ScheduleImporter onImport={onScheduleImport} />
+        <button
+          type="button"
+          onClick={onScheduleClear}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+        >
+          Clear Schedule
+        </button>
       </div>
     </header>
   );

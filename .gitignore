@@ -4,3 +4,10 @@ dist/
 .env
 .env.local
 npm-debug.log*
+.test-build/
+coverage/
+*.tsbuildinfo
+
+# Local Xcode build artifacts can appear beside this web app in the parent workspace.
+DerivedData*/
+../DerivedData*/

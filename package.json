@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "tsc -p tsconfig.test.json && node -e \"require('node:fs').writeFileSync('.test-build/package.json', '{\\\"type\\\":\\\"commonjs\\\"}\\n')\" && node .test-build/tests/scheduler.test.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -17,6 +19,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/node": "^26.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

@@ -2,6 +2,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { ChevronRight, GripVertical } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Driver, FlightAssignment } from "../../types/dispatch";
+import { useTimelineScale } from "./TimelineScaleContext";
 import { durationMinutes, minutesFromStart, pixelsPerMinute, serviceStyle } from "./timelineUtils";
 import { FlightHoverCard } from "./FlightHoverCard";
 
@@ -11,6 +12,8 @@ type FlightPuckProps = {
 };
 
 export function FlightPuck({ flight, driver }: FlightPuckProps) {
+  const scale = useTimelineScale();
+  const minuteWidth = pixelsPerMinute * scale;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: flight.id,
     data: { flightId: flight.id },
@@ -23,10 +26,10 @@ export function FlightPuck({ flight, driver }: FlightPuckProps) {
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`group absolute top-2 flex h-7 cursor-grab items-center justify-between gap-1 rounded-lg border px-2 text-[12px] font-medium shadow-sm transition active:cursor-grabbing hover:z-30 hover:-translate-y-0.5 hover:shadow-md ${serviceStyle(flight.serviceType)} ${flight.edited ? "ring-2 ring-blue-500 ring-offset-1" : ""} ${flight.overtime ? "outline outline-2 outline-red-300" : ""} ${isLunch ? "justify-center rounded-full border-red-400 bg-white text-red-600" : ""} ${isDragging ? "z-50 opacity-75 shadow-lg" : ""}`}
+      className={`group absolute top-1.5 flex h-6 cursor-grab items-center justify-between gap-1 rounded-lg border px-2 text-[11px] font-medium shadow-sm transition active:cursor-grabbing hover:z-30 hover:-translate-y-0.5 hover:shadow-md ${serviceStyle(flight.serviceType)} ${flight.edited ? "ring-2 ring-blue-500 ring-offset-1" : ""} ${flight.overtime ? "outline outline-2 outline-red-300" : ""} ${isLunch ? "justify-center rounded-full border-red-400 bg-white text-red-600" : ""} ${isDragging ? "z-50 opacity-75 shadow-lg" : ""}`}
       style={{
-        left: minutesFromStart(flight.start) * pixelsPerMinute,
-        width: isLunch ? 34 : durationMinutes(flight.start, flight.end) * pixelsPerMinute,
+        left: minutesFromStart(flight.start) * minuteWidth,
+        width: isLunch ? 34 : durationMinutes(flight.start, flight.end) * minuteWidth,
         transform: CSS.Translate.toString(transform),
       }}
       title={flight.flightNumber}

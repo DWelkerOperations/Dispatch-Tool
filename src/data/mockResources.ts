@@ -1,19 +1,23 @@
-import type { Helper, Truck } from "../types/dispatch";
+import type { FleetVehicleType, Helper, Truck } from "../types/dispatch";
 
 export const mockHelpers: Helper[] = [
-  { id: "h1", name: "Helper 1", shiftStart: "06:00", shiftEnd: "14:00" },
-  { id: "h2", name: "Helper 2", shiftStart: "06:00", shiftEnd: "14:00" },
-  { id: "h3", name: "Helper 3", shiftStart: "07:00", shiftEnd: "15:00" },
-  { id: "h4", name: "Helper 4", shiftStart: "07:00", shiftEnd: "15:00" },
+  { id: "h1", name: "Helper 1", shiftStart: "06:00", shiftEnd: "14:30" },
+  { id: "h2", name: "Helper 2", shiftStart: "06:00", shiftEnd: "14:30" },
+  { id: "h3", name: "Helper 3", shiftStart: "07:00", shiftEnd: "15:30" },
+  { id: "h4", name: "Helper 4", shiftStart: "07:00", shiftEnd: "15:30" },
 ];
 
-export const mockTrucks: Truck[] = [
-  { id: "t1", truckNumber: "304" },
-  { id: "t2", truckNumber: "235" },
-  { id: "t3", truckNumber: "227" },
-  { id: "t4", truckNumber: "1169" },
-  { id: "t5", truckNumber: "109" },
-  { id: "t6", truckNumber: "043" },
-  { id: "t7", truckNumber: "039" },
-  { id: "t8", truckNumber: "046" },
-];
+const ordFleetByType: Record<Exclude<FleetVehicleType, "Spare Truck">, string[]> = {
+  "10 Ft. SOV": ["3509", "2213", "6792", "6799", "7442", "6768", "6769", "7412", "2259", "1318", "1717", "5408", "5409", "5410", "1191", "6837"],
+  "14 Ft. SOV XL": ["6834", "6839", "2139", "6836", "0220"],
+  "16 Ft. Truck": ["9437", "9440", "9441", "9442", "9443", "9444", "9445", "9446", "9447", "9448", "9449", "9450", "9451", "9452", "9453", "9454", "9455", "0876", "0922", "6376", "5962", "5974", "5977", "5971", "5973", "5964", "5963", "5969", "5972", "5975", "5976", "6380", "1177", "1626", "1668", "1669", "1620", "1621", "1636", "1671", "1672", "1651", "2633", "6492", "1180", "5029", "3073", "7162", "7163", "0064", "6382", "6395"],
+  "22 Ft. Truck": ["4681", "4682", "4683", "4684", "4685", "4686", "6801", "7592", "7593", "7595", "7596", "7597", "7598", "7599", "7600", "7602", "7603", "7604", "7605", "7606", "7607", "7609", "7610", "7611", "7612", "7613", "7614", "7615", "7619", "7620", "7621", "7622", "7623", "7624", "7625", "6494", "0882", "0883", "0884", "0885", "4795", "4796", "1168", "1169", "1170", "5711", "4797", "4798", "4799", "7989", "8011", "8029", "7001", "7003", "4793", "4805", "7017", "5008", "1809", "4819", "1408", "4444", "1805", "7016", "6418", "6372"],
+};
+
+export const mockTrucks: Truck[] = Object.entries(ordFleetByType).flatMap(([vehicleType, truckNumbers]) =>
+  truckNumbers.map((truckNumber, index) => ({
+    id: `${vehicleType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${truckNumber}-${index + 1}`,
+    truckNumber,
+    vehicleType: vehicleType as FleetVehicleType,
+  })),
+);

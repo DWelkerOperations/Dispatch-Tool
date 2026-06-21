@@ -2,19 +2,22 @@
 
 ## Purpose
 
-Build a modern, frontend-only prototype for airline catering transportation dispatch and driver pairing operations. This replaces an Excel-based planning workflow with a visual, dispatcher-friendly web interface.
+Build a modern, frontend-only prototype for airline catering dispatch and transportation resource planning. This replaces an Excel-based planning workflow with a visual guide that imports flight schedules, applies thumb rules, and recommends driver, helper, and truck coverage.
 
 ## Current Scope
 
 - React, TypeScript, and Tailwind CSS.
-- Mock data only.
-- No backend, database, authentication, schedule import, optimization engine, or pairing algorithm.
-- Desktop-first layout for dispatchers using large monitors.
-- Primary focus is the Dispatcher Timeline.
+- Excel schedule import for the active planning file.
+- Thumb-rule driven resource guidance and pairing quality checks.
+- No backend, database, authentication, or live dispatch workflow yet.
+- Desktop-first layout for transportation planning review.
+- Primary focus is the Resource Guide.
+- PDX June 11, 2026 and ORD May 14, 2026 are sample/reference schedules only. The tool should stay generic across sites.
 
 ## Current Screens
 
-- Dispatcher Timeline: driver rows, shift times, timeline pucks, open flight lane, hover details, and simple drag reassignment.
+- Resource Guide: imported schedule, applied thumb rules, recommended resource starts, pairing quality, timing key, and planning timeline.
+- Planning Tool: driver rows, shift times, timeline pucks, hover details, and pairing output.
 - Exceptions: mock operational risks such as overtime, missing lunch, late load risk, truck conflict, and unplanned flights.
 - Tour Sheet: print-friendly operational assignment table.
 - Dashboard: mock KPI overview.
@@ -22,22 +25,21 @@ Build a modern, frontend-only prototype for airline catering transportation disp
 
 ## Near-Term Priorities
 
-1. Improve dispatcher timeline usability.
+1. Improve resource guide usability.
    - Make shift, off-shift, overtime, lunch, edited flights, and unplanned work visually obvious.
-   - Keep the grid dense enough for real dispatch use.
-   - Preserve simple vertical drag reassignment only.
+   - Keep the grid dense enough for real planning review.
 
-2. Strengthen mock data shape.
+2. Strengthen imported data handling.
    - Keep driver, truck, radio, shift, flight, assignment, lunch, and exception fields easy to understand.
-   - Avoid backend-style complexity until the workflow is clearer.
+   - Avoid backend-style complexity until the planning workflow is clearer.
 
-3. Add dispatcher workflow polish.
+3. Add planning workflow polish.
    - Improve hover details.
    - Add selected flight state.
-   - Add simple filters only if they support dense operations review.
+   - Add simple filters only if they support resource planning review.
 
 4. Prepare for real data later.
-   - Document likely import fields.
+   - Document import fields.
    - Keep all data structures typed.
    - Do not add a database or API until the static workflow is validated.
 
@@ -48,10 +50,11 @@ Build a modern, frontend-only prototype for airline catering transportation disp
 - No real airline schedule imports.
 - No authentication.
 - No database.
+- No live dispatching.
 - No deployment automation until the prototype flow is stable.
 
 ## Development Workflow
 
-- Work from the GitHub-connected local folder: `/Users/drewwelker/Documents/New project/Dispatch-Tool`.
+- Work from the GitHub-connected local folder: `/Users/drewwelker/Documents/Codex Projects/Dispatch Tool/Dispatch-Tool`.
 - Keep changes small and build after each meaningful step.
 - Push stable checkpoints to GitHub.
