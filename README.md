@@ -2,6 +2,10 @@
 
 Modern frontend prototype for airline catering dispatch and transportation resource planning.
 
+## V1.1 Resource Planning
+
+V1.1 is the current Resource Planning deployment baseline. It is configured for GitHub Pages and includes a lightweight front-end password gate for shared review access.
+
 ## v1.0 Baseline
 
 Dispatch Tool v1.0 is the stable generic dispatch/resource planner prototype baseline, anchored at commit `9cd1e6f` (`Stabilize generic dispatch planner prototype`). It is a return point for future work, not a finished production system.
@@ -39,6 +43,54 @@ Dispatch Tool v1.0 is the stable generic dispatch/resource planner prototype bas
 pnpm install
 pnpm dev
 ```
+
+## GitHub Pages deployment
+
+This app deploys to GitHub Pages from the `main` branch with the workflow in `.github/workflows/deploy-pages.yml`.
+
+Expected public URL after Pages is enabled:
+
+```text
+https://dwelker123-glitch.github.io/Dispatch-Tool/
+```
+
+Deployment behavior:
+
+- Viewers do not need a GitHub account or GitHub login.
+- The shared page updates only after code is committed and pushed to `main`.
+- The GitHub Actions workflow installs dependencies, runs typecheck/tests, builds the app with the `/Dispatch-Tool/` base path, and publishes the `dist` artifact to Pages.
+- Use `workflow_dispatch` from GitHub Actions if a manual redeploy of the current `main` commit is needed.
+
+One-time GitHub repository setup:
+
+1. Open the repository on GitHub.
+2. Go to Settings -> Pages.
+3. Under Build and deployment, set Source to GitHub Actions.
+4. Save the setting, then push to `main` or run the deploy workflow manually.
+
+Future update flow:
+
+```bash
+git status
+pnpm typecheck
+pnpm test
+pnpm build
+git add .
+git commit -m "Describe the update"
+git push origin main
+```
+
+If you work on a feature branch first, merge that branch into `main` and push `main` to update the shared page.
+
+## Lightweight access gate
+
+The deployed app shows a password screen before the planning workspace is displayed. Successful access is remembered in browser local storage so reviewers do not need to re-enter the password on every refresh.
+
+This is lightweight access friction only. It is not true security, authentication, authorization, or data protection. Do not treat the GitHub Pages site as private.
+
+## Data and secrets warning
+
+Do not commit secrets, API keys, credentials, private staffing files, real employee data, customer data, sensitive schedules, or sensitive operational data. This app is frontend-only and GitHub Pages publishes static files to anyone who has the URL and password.
 
 ## Verification
 
