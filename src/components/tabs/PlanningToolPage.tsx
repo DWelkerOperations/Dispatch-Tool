@@ -4,7 +4,7 @@ import { mockFlights } from "../../data/mockFlights";
 import { hasCdlScheduleForDate, ordCdlDriversForDate } from "../../data/ordCdlDrivers";
 import { planningRules } from "../../data/planningRules";
 import { mockTrucks } from "../../data/mockResources";
-import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, timeToMinutes } from "../../engine/scheduler";
+import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, rejectUnassignedPushes, timeToMinutes } from "../../engine/scheduler";
 import { categoryForAircraft } from "../../import/aircraftMap";
 import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
 import { resourceIds } from "../../utils/resources";
@@ -104,7 +104,10 @@ export function PlanningToolPage({
         pairingStrategy: { targetThreeFlightPairingPercent, allowUrgentPairings: !preventUrgentPairings },
       });
       const criticalSafeResult = disallowCriticalPairings ? rejectCriticalPairings(nextResult) : nextResult;
-      return shouldEnforceUrgentPairingLimit && enforceQuality && !preventUrgentPairings ? enforceUrgentPairingLimit(criticalSafeResult, urgentPairingLimit) : criticalSafeResult;
+      const urgentSafeResult = shouldEnforceUrgentPairingLimit && enforceQuality && !preventUrgentPairings
+        ? enforceUrgentPairingLimit(criticalSafeResult, urgentPairingLimit)
+        : criticalSafeResult;
+      return resourceMode === "target" ? rejectUnassignedPushes(urgentSafeResult) : urgentSafeResult;
     };
 
     if (resourceMode === "target") {

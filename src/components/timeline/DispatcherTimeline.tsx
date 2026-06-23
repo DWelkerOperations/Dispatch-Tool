@@ -91,7 +91,7 @@ export function DispatcherTimeline({
           <div style={{ minWidth: 380 + timelineWidth(timelineScale) }}>
             <TimelineHeader showDriverRadio={showDriverRadio} />
             <div className="flex"><DriverColumn drivers={drivers} pushes={assignedPushes} driverLabelMode={driverLabelMode} showRadio={showDriverRadio} /><TimelineGrid drivers={drivers} flights={pushes.length > 0 ? [] : assignedFlights} pushes={assignedPushes} /></div>
-            <OpenFlightsLane flights={pushes.length > 0 ? [] : openFlights} pushes={openPushes} />
+            {openItemCount > 0 && <OpenFlightsLane flights={pushes.length > 0 ? [] : openFlights} pushes={openPushes} />}
           </div>
         </div>
       </Panel>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createDispatchSchedule, createPlanningSchedule, rejectCriticalPairings } from "../src/engine/scheduler";
+import { createDispatchSchedule, createPlanningSchedule, rejectCriticalPairings, rejectUnassignedPushes } from "../src/engine/scheduler";
 import { planningRules } from "../src/data/planningRules";
 import type { Driver, FlightAssignment, Helper, PlanningRules, Truck } from "../src/types/dispatch";
 
@@ -193,6 +193,22 @@ describe("scheduler", () => {
     assert.equal(rejected.summary.totalPushes, 0);
     assert.equal(rejected.summary.flightsWithExceptions, 1);
     assert.ok(rejected.exceptions.some((item) => item.cause === "timing-conflict"));
+  });
+
+  it("rejects unassigned planning pushes into exceptions", () => {
+    const result = createPlanningSchedule(
+      [flight({ aircraft: "737", etd: "10:00" })],
+      [],
+      [],
+      [],
+      { rules: planningRules },
+    );
+    const rejected = rejectUnassignedPushes(result);
+
+    assert.equal(rejected.summary.totalPushes, 0);
+    assert.equal(rejected.summary.unscheduledFlights, 0);
+    assert.equal(rejected.summary.flightsWithExceptions, 1);
+    assert.ok(rejected.exceptions.some((item) => item.cause === "driver-shortage"));
   });
 });
 

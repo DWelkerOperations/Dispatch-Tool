@@ -170,6 +170,58 @@ export function rejectCriticalPairings(result: ScheduleResult): ScheduleResult {
   return buildResult(result.mode, acceptedPushes, [...result.exceptions, ...criticalExceptions], result.rules);
 }
 
+export function rejectUnassignedPushes(result: ScheduleResult): ScheduleResult {
+  const acceptedPushes: Push[] = [];
+  const rejectedPushes: Push[] = [];
+
+  for (const push of result.pushes) {
+    if (push.driverId && push.truckId && push.helperId !== "needed") {
+      acceptedPushes.push(push);
+      continue;
+    }
+
+    rejectedPushes.push(push);
+  }
+
+  if (rejectedPushes.length === 0) return result;
+
+  const existingExceptionIds = new Set(result.exceptions.map((exception) => exception.id));
+  const coverageExceptions: ScheduleException[] = rejectedPushes.flatMap((push) => {
+    const issue = unassignedPushIssue(push);
+    const cause = unassignedPushCause(push);
+    return push.flights.map((flight) => {
+      const id = `${push.id}-${flight.id}-unassigned-resource`;
+      return {
+        id: existingExceptionIds.has(id) ? `${id}-rejected` : id,
+        flightId: flight.id,
+        flightNumber: flight.flightNumber,
+        operationType: flight.operationType,
+        serviceType: flight.serviceType,
+        pushId: push.id,
+        issue,
+        cause,
+        recommendedAction: "Do not publish this resource plan. Add a valid resource wave or adjust timing rules, then rebuild until no work remains open.",
+      };
+    });
+  });
+
+  return buildResult(result.mode, acceptedPushes, [...result.exceptions, ...coverageExceptions], result.rules);
+}
+
+function unassignedPushIssue(push: Push) {
+  const missing = [];
+  if (!push.driverId) missing.push("driver");
+  if (!push.truckId) missing.push("truck");
+  if (push.helperId === "needed") missing.push("helper");
+  return `Unassigned ${missing.join("/")} coverage for ${push.id}`;
+}
+
+function unassignedPushCause(push: Push): ScheduleException["cause"] {
+  if (!push.driverId) return "driver-shortage";
+  if (!push.truckId) return "truck-shortage";
+  return "helper-shortage";
+}
+
 export function enforceUrgentPairingLimit(result: ScheduleResult, urgentLimitPercent = 5): ScheduleResult {
   let current = result;
   let guard = 0;
