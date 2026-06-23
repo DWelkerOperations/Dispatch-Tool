@@ -58,6 +58,33 @@ describe("schedule import normalization", () => {
     assert.equal(result.flights.filter((flight) => flight.originAirport === "ORD" && flight.departureDate === "2026-06-02").length, 1);
   });
 
+  it("treats first Depart as date and second Depart as time in flight overview exports", () => {
+    const result = parseScheduleRows([
+      ["Depart", "Flight", "Depart", "Ramp", "Kitchen", "Aircraft ", "From ", "To", "Hen "],
+      [" 06/22/2026", "DL 2950", "05:40", "02:40", "23:40", "DL 321", "BWI", "ATL", "N"],
+      [" 06/22/2026", "DL 2601", "06:08", "03:08", "00:08", "DL 717", "BWI", "DTW", "N"],
+      [" 06/22/2026", "DL 2357", "11:35", "08:35", "05:35", "DL 221", "BWI", "MSP", "N"],
+      [" 06/22/2026", "DL 2961", "21:15", "18:15", "15:15", "DL 223", "BWI", "ATL", "N"],
+      [" 06/22/2026", "AA 2670", "06:15", "03:15", "00:15", "AA 32K", "BWI", "CLT", "TRASH"],
+      [" 06/22/2026", "5Y 8875", "09:33", "06:33", "03:33", "5Y 747", "BWI", "CVG", "DLV"],
+      ["6/23/26", "14:00: ", "", "", "", "", "", "", ""],
+    ]);
+
+    assert.equal(result.detectedFormat, "flight-overview");
+    assert.equal(result.skippedRowCount, 0);
+    assert.equal(result.normalizedRows.length, 6);
+    assert.deepEqual(result.availableDates, ["2026-06-22"]);
+    assert.equal(result.normalizedRows[0]?.departureDate, "2026-06-22");
+    assert.equal(result.normalizedRows[0]?.departureTime, "05:40");
+    assert.equal(result.normalizedRows[0]?.aircraftType, "321");
+    assert.equal(result.normalizedRows[1]?.aircraftType, "717");
+    assert.equal(result.normalizedRows[2]?.aircraftType, "221");
+    assert.equal(result.normalizedRows[3]?.aircraftType, "223");
+    assert.equal(result.normalizedRows[4]?.aircraftType, "32K");
+    assert.equal(result.normalizedRows[5]?.airline, "5Y");
+    assert.equal(result.normalizedRows[5]?.aircraftType, "747");
+  });
+
   it("skips bad rows without rejecting the whole schedule when valid rows remain", () => {
     const result = parseScheduleRows([
       ["Departure Date", "Airline", "Flight Number", "Field Departure Time", "Aircraft Type", "Origin", "Destination"],

@@ -2,7 +2,7 @@ import type { AirportCode, FlightAssignment, ServiceType } from "../types/dispat
 import { normalizeAirportCode } from "../data/airports";
 import { aircraftInterpretations, normalizeAircraftType } from "./aircraftMap";
 
-export type ScheduleFormatId = "standard" | "combined-flight" | "operation-plan";
+export type ScheduleFormatId = "standard" | "combined-flight" | "flight-overview" | "operation-plan";
 
 export type NormalizedScheduleRow = {
   sourceRowNumber: number;
@@ -70,6 +70,35 @@ const formatDefinitions: FormatDefinition[] = [
     },
   },
   {
+    id: "flight-overview",
+    label: "flight overview schedule",
+    match: (headers) => has(headers, "flightOverviewDate", "flight", "flightOverviewDepartureTime", "aircraftType", "originSite", "destination"),
+    read: (row, sourceRowNumber, headers) => {
+      const rawFlight = cellText(row[headers.flight]);
+      if (
+        cellText(row[headers.flightOverviewDate])
+        && isReportTimestamp(rawFlight)
+        && !cellText(row[headers.flightOverviewDepartureTime])
+        && !cellText(row[headers.aircraftType])
+        && !cellText(row[headers.originSite])
+        && !cellText(row[headers.destination])
+      ) {
+        return emptySourceRow(sourceRowNumber);
+      }
+      const flightParts = splitFlight(cellText(row[headers.flight]));
+      return normalizeSourceRow({
+        sourceRowNumber,
+        departureDate: cellText(row[headers.flightOverviewDate]),
+        airline: flightParts.airline,
+        flightNumber: flightParts.flightNumber,
+        departureTime: cellText(row[headers.flightOverviewDepartureTime]),
+        aircraftType: cleanAircraftCode(cellText(row[headers.aircraftType]), flightParts.airline),
+        originSite: cellText(row[headers.originSite]),
+        destination: cellText(row[headers.destination]),
+      });
+    },
+  },
+  {
     id: "operation-plan",
     label: "operation plan schedule",
     match: (headers) => has(headers, "departureDate", "carrier", "number", "etd", "fleet", "site", "routeTo"),
@@ -130,6 +159,19 @@ const headerAliases: Record<string, string> = {
   "route to": "routeTo",
   routeto: "routeTo",
 };
+
+function emptySourceRow(sourceRowNumber: number): NormalizedScheduleRow {
+  return {
+    sourceRowNumber,
+    departureDate: "",
+    airline: "",
+    flightNumber: "",
+    departureTime: "",
+    aircraftType: "",
+    originSite: "",
+    destination: "",
+  };
+}
 
 export async function parseScheduleFile(file: File): Promise<ScheduleImportResult> {
   const XLSX = await import("xlsx");
@@ -200,11 +242,19 @@ function detectScheduleFormat(rows: unknown[][]) {
 }
 
 function buildHeaderIndex(headerRow: unknown[]) {
-  return headerRow.reduce<HeaderIndex>((headers, value, index) => {
+  const headers = headerRow.reduce<HeaderIndex>((currentHeaders, value, index) => {
     const key = headerAliases[normalizeHeader(value)];
-    if (key && headers[key] === undefined) headers[key] = index;
-    return headers;
+    if (key && currentHeaders[key] === undefined) currentHeaders[key] = index;
+    return currentHeaders;
   }, {});
+
+  const normalizedHeaders = headerRow.map(normalizeHeader);
+  if (normalizedHeaders[0] === "depart" && normalizedHeaders[1] === "flight" && normalizedHeaders[2] === "depart") {
+    headers.flightOverviewDate = 0;
+    headers.flightOverviewDepartureTime = 2;
+  }
+
+  return headers;
 }
 
 function normalizeSourceRow(row: NormalizedScheduleRow): NormalizedScheduleRow {
@@ -265,6 +315,8 @@ function toFlightAssignment(row: NormalizedScheduleRow, index: number): FlightAs
 }
 
 function isNonEmptyScheduleRow(row: NormalizedScheduleRow) {
+  if (row.departureDate && !row.airline && !row.flightNumber && row.departureTime && !row.aircraftType && !row.originSite && !row.destination) return false;
+  if (row.departureDate && !row.airline && isReportTimestamp(row.flightNumber) && !row.departureTime && !row.aircraftType && !row.originSite && !row.destination) return false;
   return Boolean(row.departureDate || row.airline || row.flightNumber || row.departureTime || row.aircraftType || row.originSite || row.destination);
 }
 
@@ -278,9 +330,13 @@ function normalizeAirport(value: string): AirportCode | undefined {
 }
 
 function splitFlight(value: string) {
-  const match = value.trim().match(/^([A-Z]{1,3})\s*[- ]?\s*([A-Z0-9]+)$/i);
-  if (!match) return { airline: "", flightNumber: value.trim() };
-  return { airline: match[1].toUpperCase(), flightNumber: match[2].toUpperCase() };
+  const separated = value.trim().match(/^([A-Z0-9]{1,3})\s+([A-Z0-9]+)$/i) ?? value.trim().match(/^([A-Z0-9]{1,3})\s*-\s*([A-Z0-9]+)$/i);
+  if (separated) return { airline: separated[1].toUpperCase(), flightNumber: separated[2].toUpperCase() };
+
+  const compact = value.trim().match(/^([A-Z]{1,3})([A-Z0-9]+)$/i);
+  if (compact) return { airline: compact[1].toUpperCase(), flightNumber: compact[2].toUpperCase() };
+
+  return { airline: "", flightNumber: value.trim() };
 }
 
 function cleanAircraftCode(value: string, airline: string) {
@@ -344,13 +400,15 @@ function isSupportedAircraft(value: string) {
   return (
     /^(A)?3(19|20|21|2N|2S)$/.test(compact) ||
     /^19[A-Z]?$/.test(compact) ||
-    /^20[A-Z]?$/.test(compact) ||
+    /^2(0|2)[A-Z0-9]?$/.test(compact) ||
     /^21[A-Z]?$/.test(compact) ||
+    /^32[A-Z0-9]?$/.test(compact) ||
     /^33[A-Z0-9]?$/.test(compact) ||
     /^3[27][A-Z0-9]?$/.test(compact) ||
     /^38[A-Z0-9]?$/.test(compact) ||
     /^73[A-Z0-9]{0,2}$/.test(compact) ||
     /^74[A-Z0-9]?$/.test(compact) ||
+    /^71[A-Z0-9]?$/.test(compact) ||
     /^(B)?7(37|38|39|3G|3H|3J|3M|3R|3W|57|67|77|87)/.test(compact) ||
     /^7M[789]$/.test(compact) ||
     /^7[36][A-Z0-9]{1,2}$/.test(compact) ||
@@ -384,4 +442,8 @@ function cellText(value: unknown) {
 
 function normalizeHeader(value: unknown) {
   return cellText(value).toLowerCase().replace(/[_-]/g, " ").replace(/\s+/g, " ");
+}
+
+function isReportTimestamp(value: string) {
+  return /^\d{1,2}:\d{2}:?\s*$/.test(value);
 }
