@@ -21,7 +21,7 @@ export default function App() {
   const [planningDate, setPlanningDate] = useState(ordMay14DefaultDate);
   const [planningFlights, setPlanningFlights] = useState<FlightAssignment[]>(ordMay14Flights);
   const [planningFileName, setPlanningFileName] = useState<string>(ordMay14FileName);
-  const [planningReferenceScheduleId, setPlanningReferenceScheduleId] = useState("ord-2026-05-14");
+  const [planningReferenceScheduleId, setPlanningReferenceScheduleId] = useState("");
   const [planningOperationType, setPlanningOperationType] = useState<OperationView>("mainline");
   const [planningResult, setPlanningResult] = useState<ScheduleResult | null>(null);
   const [activeRules, setActiveRules] = useState<PlanningRules>(defaultPlanningRules);
@@ -29,7 +29,7 @@ export default function App() {
   const [resourceGuideDate, setResourceGuideDate] = useState(pdxJune11DefaultDate);
   const [resourceGuideFlights, setResourceGuideFlights] = useState<FlightAssignment[]>(pdxJune11Flights);
   const [resourceGuideFileName, setResourceGuideFileName] = useState<string>(pdxJune11FileName);
-  const [resourceGuideReferenceScheduleId, setResourceGuideReferenceScheduleId] = useState("pdx-2026-06-11");
+  const [resourceGuideReferenceScheduleId, setResourceGuideReferenceScheduleId] = useState("");
   const [resourceGuideOperationType, setResourceGuideOperationType] = useState<OperationView>("mainline");
   const [resourceGuideResult, setResourceGuideResult] = useState<ScheduleResult | null>(null);
   const planningVisibleFlights = useMemo(
@@ -70,7 +70,7 @@ export default function App() {
     if (activeTab === "resource-guide") {
       setResourceGuideFlights(pdxJune11Flights);
       setResourceGuideFileName(pdxJune11FileName);
-      setResourceGuideReferenceScheduleId("pdx-2026-06-11");
+      setResourceGuideReferenceScheduleId("");
       setResourceGuideAirport(pdxJune11DefaultAirport);
       setResourceGuideDate(pdxJune11DefaultDate);
       setResourceGuideResult(null);
@@ -79,7 +79,7 @@ export default function App() {
 
     setPlanningFlights(ordMay14Flights);
     setPlanningFileName(ordMay14FileName);
-    setPlanningReferenceScheduleId("ord-2026-05-14");
+    setPlanningReferenceScheduleId("");
     setPlanningAirport(ordMay14DefaultAirport);
     setPlanningDate(ordMay14DefaultDate);
     setPlanningResult(null);
