@@ -2,11 +2,27 @@ import type { RuleItem } from "../types/dispatch";
 import { planningRules } from "./planningRules";
 
 export function ruleItemsFromPlanningRules(rules = planningRules): RuleItem[] {
+  const defaultDriveReturn = `${rules.mainlineDriveOutMinutes}/${rules.mainlineReturnMinutes} min`;
+  const siteOverrides = rules.siteOverrides ?? {};
+  const driveReturnOverrides = Object.entries(siteOverrides)
+    .map(([site, override]) => ({
+      site,
+      driveOutMinutes: override.driveOutMinutes ?? rules.mainlineDriveOutMinutes,
+      returnMinutes: override.returnMinutes ?? rules.mainlineReturnMinutes,
+    }))
+    .filter((override) => override.driveOutMinutes !== rules.mainlineDriveOutMinutes || override.returnMinutes !== rules.mainlineReturnMinutes);
+  const driveReturnOverrideText = driveReturnOverrides.length > 0
+    ? driveReturnOverrides.map((override) => `${override.site} ${override.driveOutMinutes}/${override.returnMinutes} min`).join("; ")
+    : "None";
+  const defaultSites = Object.entries(siteOverrides)
+    .filter(([, override]) => (override.driveOutMinutes ?? rules.mainlineDriveOutMinutes) === rules.mainlineDriveOutMinutes && (override.returnMinutes ?? rules.mainlineReturnMinutes) === rules.mainlineReturnMinutes)
+    .map(([site]) => site);
+
   return [
   { id: "r1", category: "Preferred on", setting: "Express / narrowbody / 757 / widebody", value: "40 / 50 / 65 / 90 min" },
   { id: "r2", category: "Hard off", setting: "Domestic / international", value: `${rules.hardMinimumCompletionBeforeDepartureMinutes} / 30 min` },
   { id: "r3", category: "Food safety", setting: "Latest dispatch departure", value: `No earlier than D-${rules.maxKitchenDepartureBeforeDepartureMinutes}` },
-  { id: "r4", category: "Drive / return", setting: "Site drive overrides", value: "Configured by site; defaults use standard drive/return minutes" },
+  { id: "r4", category: "Drive / return", setting: "Site drive overrides", value: `Default drive/return ${defaultDriveReturn}. CSC differences: ${driveReturnOverrideText}. ${defaultSites.length > 0 ? `${defaultSites.join(", ")} use default.` : "All configured CSCs differ from default."}` },
   { id: "r5", category: "Load sequence", setting: "Load / dock prep", value: `${rules.firstAircraftSetupMinutes} min` },
   { id: "r6", category: "Shift lengths", setting: "Standard driver shift", value: `${rules.standardShiftHours} paid hr + ${rules.lunchMinutes} min unpaid lunch` },
   { id: "r7", category: "Lunch windows", setting: "Ideal lunch before", value: `${rules.idealLunchBeforeHour}th hour` },
