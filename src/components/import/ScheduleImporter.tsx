@@ -5,7 +5,7 @@ import type { FlightAssignment } from "../../types/dispatch";
 import type { NormalizedScheduleRow, ScheduleImportResult } from "../../import/scheduleImport";
 
 type ScheduleImporterProps = {
-  onImport: (flights: FlightAssignment[], fileName: string) => void;
+  onImport: (flights: FlightAssignment[], fileName: string, selectedDate?: string) => void;
 };
 
 type PendingSchedule = ScheduleImportResult & {
@@ -60,8 +60,8 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
 
   function confirmImport() {
     if (!pendingSchedule || !selectedSchedule) return;
-    onImport(selectedSchedule.flights, pendingSchedule.fileName);
-    setImportWarning(`${selectedSchedule.flights.length} normalized rows confirmed and loaded${selectedSchedule.date ? ` for ${formatDateForDisplay(selectedSchedule.date)}` : ""}.`);
+    onImport(pendingSchedule.flights, pendingSchedule.fileName, selectedSchedule.date);
+    setImportWarning(`${pendingSchedule.flights.length} normalized rows loaded. Showing ${selectedSchedule.flights.length}${selectedSchedule.date ? ` for ${formatDateForDisplay(selectedSchedule.date)}` : ""}.`);
     setPendingSchedule(null);
     setSelectedDate("");
   }

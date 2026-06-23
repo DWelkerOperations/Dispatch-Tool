@@ -55,6 +55,7 @@ describe("schedule import normalization", () => {
     assert.equal(result.normalizedRows[0]?.flightNumber, "3750");
     assert.equal(result.normalizedRows[0]?.departureTime, "00:26");
     assert.equal(result.normalizedRows[0]?.aircraftType, "37X");
+    assert.equal(result.flights.filter((flight) => flight.originAirport === "ORD" && flight.departureDate === "2026-06-02").length, 1);
   });
 
   it("skips bad rows without rejecting the whole schedule when valid rows remain", () => {

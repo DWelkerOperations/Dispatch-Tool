@@ -44,9 +44,10 @@ export default function App() {
     ? { airport: resourceGuideAirport, date: resourceGuideDate, flights: resourceGuideFlights, visibleFlights: resourceGuideVisibleFlights, fileName: resourceGuideFileName, referenceScheduleId: resourceGuideReferenceScheduleId }
     : { airport: planningAirport, date: planningDate, flights: planningFlights, visibleFlights: planningVisibleFlights, fileName: planningFileName, referenceScheduleId: planningReferenceScheduleId };
 
-  function handleScheduleImport(flights: FlightAssignment[], fileName: string) {
-    const firstImportedAirport = flights.find((flight) => flight.originAirport)?.originAirport;
-    const firstImportedDate = flights.find((flight) => flight.departureDate)?.departureDate;
+  function handleScheduleImport(flights: FlightAssignment[], fileName: string, selectedDate?: string) {
+    const firstImportedDate = selectedDate || flights.find((flight) => flight.departureDate)?.departureDate;
+    const firstImportedAirport = flights.find((flight) => (!firstImportedDate || flight.departureDate === firstImportedDate) && flight.originAirport)?.originAirport
+      ?? flights.find((flight) => flight.originAirport)?.originAirport;
     if (activeTab === "resource-guide") {
       setResourceGuideFlights(flights);
       setResourceGuideFileName(fileName);
