@@ -54,8 +54,9 @@ export const planningRules: PlanningRules = {
   },
   priorityOrder: [
     "No delayed flights",
-    "Maximize driver shift utilization",
     "Minimize drivers",
+    "Maximize driver shift utilization",
+    "Prefer legal 3-flight pairings",
     "Minimize idle time",
     "Reduce overtime",
     "Minimize trucks",

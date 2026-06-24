@@ -39,7 +39,7 @@ export function ruleItemsFromPlanningRules(rules = planningRules): RuleItem[] {
   { id: "r18", category: "Shifts", setting: "Crew ready after shift start", value: "15 min" },
   { id: "r19", category: "Lunch", setting: "Required lunch gap", value: `${rules.lunchMinutes} min with 10 min buffers` },
   { id: "r20", category: "Scope", setting: "Shift guide cancellations", value: "Out of scope; no cancellations" },
-  { id: "r21", category: "Planning priority", setting: "Optimization order", value: "No delays, drivers, idle, OT, trucks" },
+  { id: "r21", category: "Planning priority", setting: "Optimization order", value: "No delays, drivers, utilization, 3-flight pairings, idle, OT, trucks" },
   { id: "r22", category: "Drive / return", setting: "Site seal-break override", value: "Optional site override before service starts" },
   { id: "r23", category: "Drive / return", setting: "Site gate-to-gate move", value: "Optional site override for between-gate route time" },
   { id: "r24", category: "Drive / return", setting: "Unload release", value: "15 min after return; driver and truck unavailable until complete" },

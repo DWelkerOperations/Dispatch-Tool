@@ -58,6 +58,43 @@ describe("scheduler", () => {
     assert.ok(result.summary.driversRequired >= 1);
   });
 
+  it("defaults planning to legal 3-flight pairings before adding drivers", () => {
+    const drivers: Driver[] = [
+      ...baseDrivers,
+      { id: "d3", name: "Driver 3", truck: "T3", radio: "R3", shiftStart: "06:00", shiftEnd: "14:30" },
+      { id: "d4", name: "Driver 4", truck: "T4", radio: "R4", shiftStart: "06:00", shiftEnd: "14:30" },
+    ];
+    const helpers: Helper[] = [
+      ...baseHelpers,
+      { id: "h3", name: "Helper 3", shiftStart: "06:00", shiftEnd: "14:30" },
+      { id: "h4", name: "Helper 4", shiftStart: "06:00", shiftEnd: "14:30" },
+    ];
+    const trucks: Truck[] = [
+      ...baseTrucks,
+      { id: "t3", truckNumber: "T3" },
+      { id: "t4", truckNumber: "T4" },
+    ];
+
+    const result = createPlanningSchedule(
+      [
+        flight({ id: "f1", flightNumber: "UA100", etd: "12:00", gate: "A1", originAirport: "ABC" }),
+        flight({ id: "f2", flightNumber: "UA101", etd: "12:15", gate: "A2", originAirport: "ABC" }),
+        flight({ id: "f3", flightNumber: "UA102", etd: "12:30", gate: "A3", originAirport: "ABC" }),
+        flight({ id: "f4", flightNumber: "UA103", etd: "13:30", gate: "A4", originAirport: "ABC" }),
+        flight({ id: "f5", flightNumber: "UA104", etd: "13:45", gate: "A5", originAirport: "ABC" }),
+        flight({ id: "f6", flightNumber: "UA105", etd: "14:00", gate: "A6", originAirport: "ABC" }),
+      ],
+      drivers,
+      helpers,
+      trucks,
+      { rules: { ...planningRules, siteOverrides: { ABC: { preserveLunchWindow: false } } } },
+    );
+
+    assert.equal(result.summary.totalPushes, 2);
+    assert.equal(result.summary.driversRequired, 2);
+    assert.deepEqual(result.pushes.map((push) => push.flights.length), [3, 3]);
+  });
+
   it("marks unknown aircraft as critical timing risk", () => {
     const result = createPlanningSchedule(
       [flight({ aircraft: "Unknown", etd: "10:00" })],

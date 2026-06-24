@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { mockFlights } from "../../data/mockFlights";
-import { hasCdlScheduleForDate, ordCdlDriversForDate } from "../../data/ordCdlDrivers";
 import { planningRules } from "../../data/planningRules";
 import { mockTrucks } from "../../data/mockResources";
 import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, rejectUnassignedPushes, timeToMinutes } from "../../engine/scheduler";
@@ -29,7 +28,6 @@ type PlanningToolPageProps = {
   resourcePlanPosition?: "above-timeline" | "below-timeline";
   resourcePlanTitle?: string;
   resourcePlanDescription?: string;
-  resourceMode?: "loaded" | "target";
   disallowCriticalPairings?: boolean;
   enforcePairingQuality?: boolean;
   preventUrgentPairings?: boolean;
@@ -69,7 +67,6 @@ export function PlanningToolPage({
   resourcePlanPosition = "below-timeline",
   resourcePlanTitle = "Resource Plan",
   resourcePlanDescription = "Driver starts by shift wave.",
-  resourceMode = "loaded",
   disallowCriticalPairings = false,
   enforcePairingQuality = false,
   preventUrgentPairings = false,
@@ -87,14 +84,14 @@ export function PlanningToolPage({
   const [iterationSettings, setIterationSettings] = useState({
     allowUrgentPairings: true,
     urgentPairingLimitPercent: 10,
-    targetThreeFlightPairingPercent: 50,
+    targetThreeFlightPairingPercent: standardThreeFlightPairingTargetPercent,
     maxFlightsPerPush: 3,
   });
   const runRules = showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules;
   const urgentPairingLimit = showIterationControls && iterationSettings.allowUrgentPairings ? iterationSettings.urgentPairingLimitPercent : strictUrgentPairingLimitPercent;
   const shouldEnforceUrgentPairingLimit = enforcePairingQuality;
-  const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : 0;
-  const planningResources = useMemo(() => createPlanningResources(selectedDate, resourceMode, flights, runRules), [flights, resourceMode, runRules, selectedDate]);
+  const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : standardThreeFlightPairingTargetPercent;
+  const planningResources = useMemo(() => createPlanningResources(flights, runRules), [flights, runRules]);
   const visibleResult = useMemo(() => result ? filterScheduleResultByOperation(result, operationType) : null, [operationType, result]);
 
   function handleCreatePairings() {
@@ -107,18 +104,13 @@ export function PlanningToolPage({
       const urgentSafeResult = shouldEnforceUrgentPairingLimit && enforceQuality && !preventUrgentPairings
         ? enforceUrgentPairingLimit(criticalSafeResult, urgentPairingLimit)
         : criticalSafeResult;
-      return resourceMode === "target" ? rejectUnassignedPushes(urgentSafeResult) : urgentSafeResult;
+      return rejectUnassignedPushes(urgentSafeResult);
     };
 
-    if (resourceMode === "target") {
-      const firstPass = createSchedule(planningResources.drivers, planningResources.helpers, planningResources.trucks, false);
-      const selectedStartTimes = selectShiftBidStartTimes(firstPass.pushes, planningResources.drivers);
-      const targetResources = createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules);
-      onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
-      return;
-    }
-
-    onResultChange(createSchedule(planningResources.drivers, planningResources.helpers, planningResources.trucks));
+    const firstPass = createSchedule(planningResources.drivers, planningResources.helpers, planningResources.trucks, false);
+    const selectedStartTimes = selectShiftBidStartTimes(firstPass.pushes, planningResources.drivers);
+    const targetResources = createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules);
+    onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
   }
 
   const timelineDrivers = visibleResult ? driversUsedByPlan(planningResources.drivers, visibleResult.pushes) : planningResources.drivers.slice(0, 12);
@@ -205,6 +197,7 @@ export function PlanningToolPage({
 }
 
 const strictUrgentPairingLimitPercent = 0;
+const standardThreeFlightPairingTargetPercent = 80;
 
 function IterationControls({
   settings,
@@ -483,8 +476,7 @@ function driversUsedByPlan(drivers: Driver[], pushes: Push[]) {
 
 type StartWave = { startTime: string; driverStarts: number };
 
-const maxShiftBidStartTimes = 10;
-const loadedResourcesPerStart = 80;
+const maxShiftBidStartTimes = 12;
 const targetResourcesPerStart = 260;
 const shiftStartIncrementMinutes = 30;
 
@@ -545,25 +537,8 @@ function resourceOperationLabel(resourceId: string) {
   return "";
 }
 
-function createPlanningResources(selectedDate: string, resourceMode: "loaded" | "target", flights: FlightAssignment[], rules: PlanningRules) {
-  if (resourceMode === "loaded" && hasCdlScheduleForDate(selectedDate)) {
-    const drivers = ordCdlDriversForDate(selectedDate);
-    return {
-      drivers,
-      helpers: drivers.map((driver, index): Helper => ({
-        id: `h-cdl-${index + 1}`,
-        name: `Planning Helper ${String(index + 1).padStart(3, "0")}`,
-        shiftStart: driver.shiftStart,
-        shiftEnd: driver.shiftEnd,
-      })),
-      trucks: mockTrucks,
-    };
-  }
-
-  const shiftStarts = resourceMode === "target" ? candidateShiftStartsForFlights(flights, rules) : candidateShiftStartsForFlights(flights, rules).slice(0, maxShiftBidStartTimes);
-  const resourcesPerStart = resourceMode === "target" ? targetResourcesPerStart : loadedResourcesPerStart;
-  const trucks = resourceMode === "target" ? createTargetTruckPool() : mockTrucks;
-  return createTargetResources(shiftStarts, resourcesPerStart, trucks, rules);
+function createPlanningResources(flights: FlightAssignment[], rules: PlanningRules) {
+  return createTargetResources(candidateShiftStartsForFlights(flights, rules), targetResourcesPerStart, createTargetTruckPool(), rules);
 }
 
 function createTargetResources(shiftStarts: string[], resourcesPerStart: number, trucks: ReturnType<typeof createTargetTruckPool> | typeof mockTrucks, rules: PlanningRules) {

@@ -158,7 +158,6 @@ export default function App() {
           result={planningResult}
           selectedDate={planningDate}
           resourcePlanPosition="above-timeline"
-          resourceMode="target"
           disallowCriticalPairings
           enforcePairingQuality
           showPairingQuality
@@ -179,16 +178,15 @@ export default function App() {
           result={resourceGuideResult}
           selectedDate={resourceGuideDate}
           title="Resource Guide"
-          description="Import an Excel flight schedule, apply the thumb rules, and create recommended driver, helper, and truck resource guidance."
+          description="Import an Excel flight schedule, apply the thumb rules, and create optimized driver, helper, and truck resource guidance."
           readyTitle="Ready to Build Resource Guidance"
           readyDescription={`${resourceGuideVisibleFlights.length} flights are loaded for ${resourceGuideDate}. Import the schedule you want to plan, confirm the site and date, then create guidance to see the recommended resource levels and start waves.`}
           createButtonLabel="Create Guidance"
           assumptionTitle="Guidelines Applied"
-          assumptionDescription={`This guidance uses the loaded schedule as the source of truth. It plans mainline and express independently unless the active site's rules define a shared resource pool, then shows ${resourceGuideOperationType === "all" ? "the combined total" : `the ${resourceGuideOperationType} view`}. It protects required completion times, avoids overtime where possible, keeps lunch placement inside the rules, and turns the resulting timeline into recommended resource start waves.`}
+          assumptionDescription={`This guidance uses the loaded flight schedule as the demand source, not an existing driver schedule. It plans mainline and express independently unless the active site's rules define a shared resource pool, then shows ${resourceGuideOperationType === "all" ? "the combined total" : `the ${resourceGuideOperationType} view`}. It protects required completion times, drive time, food safety windows, and lunch placement, then chooses up to 12 hour or half-hour start waves for the most efficient driver shift utilization it can find.`}
           resourcePlanPosition="above-timeline"
           resourcePlanTitle="Resource Guidance"
           resourcePlanDescription="Recommended driver, helper, and truck needs by start wave."
-          resourceMode="target"
           disallowCriticalPairings
           preventUrgentPairings
           showPairingQuality

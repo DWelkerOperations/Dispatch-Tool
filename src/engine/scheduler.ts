@@ -9,12 +9,14 @@ type ResourcePoolItem = { id: string; availableAt: number; shiftStart?: number; 
 type ScheduleOptions = { operationType?: OperationType; rules?: PlanningRules; pairingStrategy?: PairingStrategy };
 
 const kitchenUnloadMinutes = 15;
+const standardPlanningPairingStrategy: PairingStrategy = { targetThreeFlightPairingPercent: 80 };
 
 export function createPlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], options: ScheduleOptions = {}): ScheduleResult {
   const rules = options.rules ?? planningRules;
-  if (!options.operationType && usesSharedResourcePool(assignments, rules)) return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, undefined, options.pairingStrategy);
-  if (!options.operationType) return createIndependentOperationPlanningSchedule(assignments, drivers, helpers, trucks, rules, options.pairingStrategy);
-  return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, options.operationType, options.pairingStrategy);
+  const pairingStrategy = options.pairingStrategy ?? standardPlanningPairingStrategy;
+  if (!options.operationType && usesSharedResourcePool(assignments, rules)) return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, undefined, pairingStrategy);
+  if (!options.operationType) return createIndependentOperationPlanningSchedule(assignments, drivers, helpers, trucks, rules, pairingStrategy);
+  return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, options.operationType, pairingStrategy);
 }
 
 function usesSharedResourcePool(assignments: FlightAssignment[], rules: PlanningRules) {
@@ -532,11 +534,11 @@ function baseFlightNumber(flightNumber: string) {
 function maxFlightsForPairing(flights: Flight[], rules: PlanningRules, pairingStrategy?: PairingStrategy) {
   if (flights.some(isWidebodyStripFlight)) return 1;
   if (flights.some((flight) => flight.aircraftCategory === "unknown" || flight.aircraftCategory === "widebody")) return 1;
-  if (flights.every((flight) => flight.aircraftCategory === "regional")) return Math.min(rules.maxFlightsPerPush, 5);
   const siteOverride = sharedSiteRules(flights, rules);
-  if (siteOverride?.maxFlightsPerPush) return Math.min(rules.maxFlightsPerPush, siteOverride.maxFlightsPerPush);
   const threeFlightTargetIsActive = (pairingStrategy?.targetThreeFlightPairingPercent ?? 0) > 0;
-  return Math.min(rules.maxFlightsPerPush, threeFlightTargetIsActive ? 3 : 2);
+  const configuredMaxFlights = Math.min(rules.maxFlightsPerPush, siteOverride?.maxFlightsPerPush ?? rules.maxFlightsPerPush);
+  if (flights.every((flight) => flight.aircraftCategory === "regional")) return Math.min(configuredMaxFlights, threeFlightTargetIsActive ? 3 : 5);
+  return Math.min(configuredMaxFlights, threeFlightTargetIsActive ? 3 : 2);
 }
 
 function sortRoute(flights: Flight[]) {
