@@ -18,7 +18,7 @@ export function FlightHoverCard({ flight, driver }: FlightHoverCardProps) {
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         <span>ETD</span><strong className="text-right text-slate-800">{flight.etd}</strong>
         <span>ETA</span><strong className="text-right text-slate-800">{flight.eta}</strong>
-        <span>Inbound ETA</span><strong className="text-right text-slate-800">{flight.inboundEta}</strong>
+        <span>Aircraft arrival</span><strong className="text-right text-slate-800">{flight.inboundEta}</strong>
         <span>Driver</span><strong className="text-right text-slate-800">{driver?.name ?? "Unassigned"}</strong>
         <span>Truck</span><strong className="text-right text-slate-800">{driver?.truck ?? "Open"}</strong>
       </div>

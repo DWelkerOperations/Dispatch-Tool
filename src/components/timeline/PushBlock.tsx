@@ -107,6 +107,7 @@ export function PushBlock({ push, driver, shiftLabel }: PushBlockProps) {
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
                   <span>Destination</span><strong className="text-right text-slate-800">{event.destinationAirport ?? "Domestic"}</strong>
+                  <span>Aircraft arrival</span><strong className="text-right text-slate-800">{event.aircraftArrivalTime}</strong>
                   <span>Departure</span><strong className="text-right text-slate-800">{event.departureTime}</strong>
                   <span>Service</span><strong className="text-right text-slate-800">{event.serviceStart}-{event.serviceEnd}</strong>
                   <span>Duration</span><strong className="text-right text-slate-800">{event.serviceDurationMinutes} min</strong>

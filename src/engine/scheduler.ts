@@ -647,6 +647,7 @@ function evaluateRoute(flights: Flight[], rules: PlanningRules) {
       aircraftType: flight.aircraft,
       destinationAirport: flight.destinationAirport,
       departureTime: flight.etd,
+      aircraftArrivalTime: flight.inboundEta,
       serviceStart: minutesToTime(currentStart),
       serviceEnd: minutesToTime(serviceEnd),
       serviceDurationMinutes: duration,

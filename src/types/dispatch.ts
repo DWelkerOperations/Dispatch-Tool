@@ -130,6 +130,7 @@ export type ServiceEvent = {
   aircraftType: string;
   destinationAirport?: string;
   departureTime: string;
+  aircraftArrivalTime: string;
   serviceStart: string;
   serviceEnd: string;
   serviceDurationMinutes: number;
