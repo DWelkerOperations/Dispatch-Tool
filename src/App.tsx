@@ -286,6 +286,7 @@ export default function App() {
           resourcePlanTitle="ORD Resource Guidance"
           resourcePlanDescription="Recommended ORD driver, helper, and truck needs by start wave."
           disallowCriticalPairings
+          enforcePairingQuality
           preventUrgentPairings
           showPairingQuality
           showRiskDefinitions

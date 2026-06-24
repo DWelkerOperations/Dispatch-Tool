@@ -93,7 +93,7 @@ export function PlanningToolPage({
   });
   const runRules = showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules;
   const urgentPairingLimit = showIterationControls && iterationSettings.allowUrgentPairings ? iterationSettings.urgentPairingLimitPercent : strictUrgentPairingLimitPercent;
-  const shouldEnforceUrgentPairingLimit = enforcePairingQuality;
+  const shouldEnforceUrgentPairingLimit = enforcePairingQuality || preventUrgentPairings;
   const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : standardThreeFlightPairingTargetPercent;
   const planningResources = useMemo(() => createPlanningResources(flights, runRules), [flights, runRules]);
   const visibleResult = useMemo(() => result ? filterScheduleResultByOperation(result, operationType) : null, [operationType, result]);
@@ -105,7 +105,7 @@ export function PlanningToolPage({
         pairingStrategy: { targetThreeFlightPairingPercent, allowUrgentPairings: !preventUrgentPairings },
       });
       const criticalSafeResult = disallowCriticalPairings ? rejectCriticalPairings(nextResult) : nextResult;
-      const urgentSafeResult = shouldEnforceUrgentPairingLimit && enforceQuality && !preventUrgentPairings
+      const urgentSafeResult = shouldEnforceUrgentPairingLimit && enforceQuality
         ? enforceUrgentPairingLimit(criticalSafeResult, urgentPairingLimit)
         : criticalSafeResult;
       return rejectUnassignedPushes(urgentSafeResult);
@@ -389,12 +389,12 @@ function scheduleCoverageForView(result: ScheduleResult, flights: FlightAssignme
 
   for (const push of result.pushes) {
     for (const flight of push.flights) {
-      if (flight.serviceType !== "intl-strip") coveredFlightIds.add(baseFlightId(flight.id));
+      if (flight.serviceType !== "intl-strip" || !flight.id.endsWith("-intl-strip")) coveredFlightIds.add(baseFlightId(flight.id));
     }
   }
 
   for (const exception of result.exceptions) {
-    if (exception.flightId && !exception.flightId.endsWith("-intl-strip")) coveredFlightIds.add(baseFlightId(exception.flightId));
+    if (exception.flightId && (exception.serviceType !== "intl-strip" || !exception.flightId.endsWith("-intl-strip"))) coveredFlightIds.add(baseFlightId(exception.flightId));
   }
 
   return {
