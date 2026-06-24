@@ -799,16 +799,21 @@ function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: He
   const allowSiteShiftStretch = pairingStrategy?.allowUrgentPairings !== false
     && pushes.length > 0
     && pushes.every((push) => push.flights.every((flight) => siteRules(rules, flight.originAirport).allowShiftStretch));
-  const attempts = [
-    assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules, allowSiteShiftStretch, byDeparture),
-    assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules, allowSiteShiftStretch, byLatestCompletion),
-    assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules, allowSiteShiftStretch, byLongestDuration),
-  ];
+  const attempts = assignmentSorts.map((sortPushes) => (
+    assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules, allowSiteShiftStretch, sortPushes)
+  ));
   return [...attempts.sort((a, b) => assignmentScore(a, rules) - assignmentScore(b, rules))[0]].sort(byDeparture);
 }
 
 function assignLimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], exceptions: ScheduleException[], rules: PlanningRules) {
-  return assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), exceptions, rules, true, byDeparture);
+  const attempts = assignmentSorts.map((sortPushes) => {
+    const attemptExceptions: ScheduleException[] = [];
+    const attemptPushes = assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), attemptExceptions, rules, true, sortPushes);
+    return { exceptions: attemptExceptions, pushes: attemptPushes };
+  });
+  const bestAttempt = attempts.sort((a, b) => assignmentScore(a.pushes, rules) - assignmentScore(b.pushes, rules))[0];
+  exceptions.push(...bestAttempt.exceptions);
+  return [...bestAttempt.pushes].sort(byDeparture);
 }
 
 function assignPushes(pushes: Push[], driverPool: ResourcePoolItem[], helperPool: ResourcePoolItem[], truckPool: ResourcePoolItem[], exceptions: ScheduleException[], rules: PlanningRules, allowShiftOverflow: boolean, sortPushes: (a: Push, b: Push) => number) {
@@ -1284,6 +1289,10 @@ function byDeparture(a: Push, b: Push) {
   return timeToMinutes(a.kitchenDepartureTime) - timeToMinutes(b.kitchenDepartureTime);
 }
 
+function byDepartureDescending(a: Push, b: Push) {
+  return byDeparture(b, a);
+}
+
 function byLatestCompletion(a: Push, b: Push) {
   const aCompletion = Math.min(...a.flights.map((flight) => timeToMinutes(flight.hardLatestCompletion)));
   const bCompletion = Math.min(...b.flights.map((flight) => timeToMinutes(flight.hardLatestCompletion)));
@@ -1293,6 +1302,12 @@ function byLatestCompletion(a: Push, b: Push) {
 function byLongestDuration(a: Push, b: Push) {
   return b.totalDurationMinutes - a.totalDurationMinutes;
 }
+
+function byShortestDuration(a: Push, b: Push) {
+  return a.totalDurationMinutes - b.totalDurationMinutes;
+}
+
+const assignmentSorts = [byDeparture, byDepartureDescending, byLatestCompletion, byLongestDuration, byShortestDuration];
 
 function assignmentScore(pushes: Push[], rules: PlanningRules) {
   const driverCount = new Set(pushes.flatMap((push) => resourceIds(push.driverId))).size;

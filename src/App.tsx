@@ -9,7 +9,6 @@ import { StaffingPage } from "./components/tabs/StaffingPage";
 import { ThumbRulesPage } from "./components/tabs/ThumbRulesPage";
 import { TourSheetPage } from "./components/tabs/TourSheetPage";
 import { ordMay14DefaultAirport, ordMay14DefaultDate, ordMay14FileName, ordMay14Flights } from "./data/ordMay14Flights";
-import { pdxJune11DefaultAirport, pdxJune11DefaultDate, pdxJune11FileName, pdxJune11Flights } from "./data/pdxJune11Flights";
 import { planningRules as defaultPlanningRules } from "./data/planningRules";
 import { referenceSchedules, type ReferenceSchedule } from "./data/referenceSchedules";
 import { exportResourceGuideWorkbook } from "./export/resourceGuideExport";
@@ -25,10 +24,10 @@ export default function App() {
   const [planningOperationType, setPlanningOperationType] = useState<OperationView>("mainline");
   const [planningResult, setPlanningResult] = useState<ScheduleResult | null>(null);
   const [activeRules, setActiveRules] = useState<PlanningRules>(defaultPlanningRules);
-  const [resourceGuideAirport, setResourceGuideAirport] = useState<AirportCode>(pdxJune11DefaultAirport);
-  const [resourceGuideDate, setResourceGuideDate] = useState(pdxJune11DefaultDate);
-  const [resourceGuideFlights, setResourceGuideFlights] = useState<FlightAssignment[]>(pdxJune11Flights);
-  const [resourceGuideFileName, setResourceGuideFileName] = useState<string>(pdxJune11FileName);
+  const [resourceGuideAirport, setResourceGuideAirport] = useState<AirportCode>(ordMay14DefaultAirport);
+  const [resourceGuideDate, setResourceGuideDate] = useState(ordMay14DefaultDate);
+  const [resourceGuideFlights, setResourceGuideFlights] = useState<FlightAssignment[]>(ordMay14Flights);
+  const [resourceGuideFileName, setResourceGuideFileName] = useState<string>(ordMay14FileName);
   const [resourceGuideReferenceScheduleId, setResourceGuideReferenceScheduleId] = useState("");
   const [resourceGuideOperationType, setResourceGuideOperationType] = useState<OperationView>("mainline");
   const [resourceGuideResult, setResourceGuideResult] = useState<ScheduleResult | null>(null);
@@ -92,11 +91,11 @@ export default function App() {
 
   function handleScheduleClear() {
     if (activeTab === "resource-guide") {
-      setResourceGuideFlights(pdxJune11Flights);
-      setResourceGuideFileName(pdxJune11FileName);
+      setResourceGuideFlights(ordMay14Flights);
+      setResourceGuideFileName(ordMay14FileName);
       setResourceGuideReferenceScheduleId("");
-      setResourceGuideAirport(pdxJune11DefaultAirport);
-      setResourceGuideDate(pdxJune11DefaultDate);
+      setResourceGuideAirport(ordMay14DefaultAirport);
+      setResourceGuideDate(ordMay14DefaultDate);
       setResourceGuideResult(null);
       return;
     }
