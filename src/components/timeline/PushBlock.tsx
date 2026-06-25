@@ -1,7 +1,7 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
-import { useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Driver, Push, RiskSeverity, ServiceEvent } from "../../types/dispatch";
 import { resourceIds } from "../../utils/resources";
 import { useTimelineScale } from "./TimelineScaleContext";
@@ -146,10 +146,18 @@ function PushServiceTask({
   manualControlActive?: boolean;
   onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
 }) {
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const manualDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const [manualDragOffset, setManualDragOffset] = useState<{ x: number; y: number } | null>(null);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `push-task:${push.id}:${event.flightId}`,
     data: { kind: "push-service-task", flightId: event.flightId, pushId: push.id },
+    disabled: manualControlActive,
   });
   const { isOver, setNodeRef: setDropRef } = useDroppable({
     id: `manual-push:${push.id}:${event.flightId}`,
@@ -165,46 +173,54 @@ function PushServiceTask({
   const eventRiskTone = eventRiskRing[event.riskSeverity];
   const sequence = event.currentSequence ?? push.serviceEvents.findIndex((item) => item.flightId === event.flightId);
 
-  function handleManualRelease(clientX: number, clientY: number) {
-    if (!manualControlActive || !onManualFlightDrop) return;
-    const start = pointerStartRef.current;
-    pointerStartRef.current = null;
-    if (!start) return;
-    const movedPixels = Math.hypot(clientX - start.x, clientY - start.y);
+  function handleManualPointerDown(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
+    if (!manualControlActive || !onManualFlightDrop) {
+      listeners?.onPointerDown?.(pointerEvent);
+      return;
+    }
+
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+    manualDragRef.current = {
+      pointerId: pointerEvent.pointerId,
+      startX: pointerEvent.clientX,
+      startY: pointerEvent.clientY,
+      currentX: pointerEvent.clientX,
+      currentY: pointerEvent.clientY,
+    };
+    setManualDragOffset({ x: 0, y: 0 });
+  }
+
+  function handleManualPointerMove(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
+    const currentDrag = manualDragRef.current;
+    if (!currentDrag || currentDrag.pointerId !== pointerEvent.pointerId) return;
+
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    currentDrag.currentX = pointerEvent.clientX;
+    currentDrag.currentY = pointerEvent.clientY;
+    setManualDragOffset({
+      x: pointerEvent.clientX - currentDrag.startX,
+      y: pointerEvent.clientY - currentDrag.startY,
+    });
+  }
+
+  function handleManualPointerUp(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
+    const currentDrag = manualDragRef.current;
+    if (!currentDrag || currentDrag.pointerId !== pointerEvent.pointerId) return;
+
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    manualDragRef.current = null;
+    setManualDragOffset(null);
+
+    const movedPixels = Math.hypot(pointerEvent.clientX - currentDrag.startX, pointerEvent.clientY - currentDrag.startY);
     if (movedPixels < 8) return;
 
-    const target = manualDropTargetFromPoint(clientX, clientY, event.flightId, push.id);
-    if (!target) return;
-    const manualWindow = window as typeof window & { __manualFlightDropHandled?: { flightId: string; handledAt: number } };
-    manualWindow.__manualFlightDropHandled = { flightId: event.flightId, handledAt: Date.now() };
+    const target = manualDropTargetFromDraggedElement(pointerEvent.currentTarget, pointerEvent.clientX, pointerEvent.clientY, event.flightId, push.id);
+    if (!target || !onManualFlightDrop) return;
     onManualFlightDrop({ flightId: event.flightId, targetPushId: target.pushId, targetSequence: target.sequence });
-  }
-
-  function handleWindowPointerUp(pointerEvent: globalThis.PointerEvent) {
-    handleManualRelease(pointerEvent.clientX, pointerEvent.clientY);
-  }
-
-  function handleWindowMouseUp(mouseEvent: globalThis.MouseEvent) {
-    handleManualRelease(mouseEvent.clientX, mouseEvent.clientY);
-  }
-
-  function handlePointerDown(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
-    listeners?.onPointerDown?.(pointerEvent);
-    pointerStartRef.current = { x: pointerEvent.clientX, y: pointerEvent.clientY };
-    if (!manualControlActive || !onManualFlightDrop) return;
-    window.addEventListener("pointerup", handleWindowPointerUp, { once: true, capture: true });
-  }
-
-  function handleMouseDown(mouseEvent: ReactMouseEvent<HTMLButtonElement>) {
-    pointerStartRef.current = { x: mouseEvent.clientX, y: mouseEvent.clientY };
-    if (!manualControlActive || !onManualFlightDrop) return;
-    window.addEventListener("mouseup", handleWindowMouseUp, { once: true, capture: true });
-  }
-
-  function handlePointerDownCapture(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
-    pointerStartRef.current = { x: pointerEvent.clientX, y: pointerEvent.clientY };
-    if (!manualControlActive || !onManualFlightDrop) return;
-    window.addEventListener("pointerup", handleWindowPointerUp, { once: true, capture: true });
   }
 
   return (
@@ -216,14 +232,20 @@ function PushServiceTask({
       data-push-task-flight-id={event.flightId}
       data-push-task-sequence={sequence}
       data-push-task-service-type={event.serviceType}
-      onPointerDownCapture={handlePointerDownCapture}
-      onPointerDown={handlePointerDown}
-      onMouseDown={handleMouseDown}
-      className={`group/event absolute top-1 flex h-5 cursor-grab items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[1050] ${manualControlActive ? "z-[1000]" : "z-40"} ${serviceStyle(event.serviceType)} ${eventRiskTone} ${event.modifiedByManualControl ? "ring-2 ring-blue-600 ring-offset-1" : ""} ${isOver ? "outline outline-2 outline-emerald-500 outline-offset-1" : ""} ${isDragging ? "z-[1100] opacity-75 shadow-lg" : ""}`}
+      onPointerDown={handleManualPointerDown}
+      onPointerMove={handleManualPointerMove}
+      onPointerUp={handleManualPointerUp}
+      onPointerCancel={() => {
+        manualDragRef.current = null;
+        setManualDragOffset(null);
+      }}
+      className={`group/event absolute top-1 flex h-5 cursor-grab touch-none select-none items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[1050] ${manualControlActive ? "z-[1000]" : "z-40"} ${serviceStyle(event.serviceType)} ${eventRiskTone} ${event.modifiedByManualControl ? "ring-2 ring-blue-600 ring-offset-1" : ""} ${isOver ? "outline outline-2 outline-emerald-500 outline-offset-1" : ""} ${isDragging || manualDragOffset ? "z-[1100] opacity-80 shadow-lg" : ""}`}
       style={{
         left: eventLeft,
         width: eventWidth,
-        transform: CSS.Translate.toString(transform),
+        transform: manualDragOffset
+          ? CSS.Translate.toString({ x: manualDragOffset.x, y: manualDragOffset.y, scaleX: 1, scaleY: 1 })
+          : CSS.Translate.toString(transform),
       }}
     >
       <GripVertical size={10} className="shrink-0 opacity-60" />
@@ -252,6 +274,31 @@ function PushServiceTask({
       </div>
     </button>
   );
+}
+
+function manualDropTargetFromDraggedElement(draggedElement: HTMLElement, clientX: number, clientY: number, activeFlightId: string, activePushId: string) {
+  const draggedRect = draggedElement.getBoundingClientRect();
+  const overlapTarget = bestManualDropTargetFromRect(draggedRect, activePushId);
+  return overlapTarget ?? manualDropTargetFromPoint(clientX, clientY, activeFlightId, activePushId);
+}
+
+function bestManualDropTargetFromRect(draggedRect: DOMRect, activePushId: string) {
+  let bestTarget: { pushId: string; sequence: number; overlapArea: number } | null = null;
+  for (const pushElement of document.querySelectorAll<HTMLElement>("[data-manual-push-id]")) {
+    if (pushElement.dataset.manualPushId === activePushId) continue;
+    const rect = pushElement.getBoundingClientRect();
+    const overlapWidth = Math.max(0, Math.min(draggedRect.right, rect.right) - Math.max(draggedRect.left, rect.left));
+    const overlapHeight = Math.max(0, Math.min(draggedRect.bottom, rect.bottom) - Math.max(draggedRect.top, rect.top));
+    const overlapArea = overlapWidth * overlapHeight;
+    if (overlapArea > 0 && (!bestTarget || overlapArea > bestTarget.overlapArea)) {
+      bestTarget = {
+        pushId: pushElement.dataset.manualPushId ?? "",
+        sequence: Number(pushElement.dataset.manualPushSequence ?? 0),
+        overlapArea,
+      };
+    }
+  }
+  return bestTarget;
 }
 
 function manualDropTargetFromPoint(clientX: number, clientY: number, activeFlightId: string, activePushId: string) {

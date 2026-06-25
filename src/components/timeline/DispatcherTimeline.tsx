@@ -54,10 +54,6 @@ export function DispatcherTimeline({
     }
 
     if (manualControlActive && activeData?.kind === "push-service-task") {
-      const manualWindow = window as typeof window & { __manualFlightDropHandled?: { flightId: string; handledAt: number } };
-      const handledDrop = manualWindow.__manualFlightDropHandled;
-      if (handledDrop?.flightId === String(activeData.flightId) && Date.now() - handledDrop.handledAt < 1000) return;
-
       const rectDropData = manualDropDataFromDraggedRect(event, String(activeData.pushId));
       const pointDropData = manualDropDataFromPoint(event, String(activeData.flightId), String(activeData.pushId));
       const manualDropData = rectDropData ?? pointDropData ?? (overData?.kind === "manual-push-drop" ? overData : null);
