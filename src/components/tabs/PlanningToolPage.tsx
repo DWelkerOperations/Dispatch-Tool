@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, RotateCcw, SlidersHorizontal, Undo2 } from "lucide-react";
 import { mockFlights } from "../../data/mockFlights";
 import { planningRules } from "../../data/planningRules";
 import { mockTrucks } from "../../data/mockResources";
 import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, rejectUnassignedPushes, timeToMinutes } from "../../engine/scheduler";
+import { createManualPlanState, moveFlightToPush, movePushByMinutes, resetManualPlan, undoManualMove } from "../../engine/manualControl";
 import { categoryForAircraft } from "../../import/aircraftMap";
-import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
+import type { Driver, FlightAssignment, Helper, ManualPlanState, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
 import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { resourceIds } from "../../utils/resources";
 import { DispatcherTimeline } from "../timeline/DispatcherTimeline";
@@ -94,6 +95,9 @@ export function PlanningToolPage({
     targetThreeFlightPairingPercent: standardThreeFlightPairingTargetPercent,
     maxFlightsPerPush: 3,
   });
+  const [manualControlEnabled, setManualControlEnabled] = useState(false);
+  const [manualPlan, setManualPlan] = useState<ManualPlanState | null>(null);
+  const [allowReducedManualGaps, setAllowReducedManualGaps] = useState(false);
   const runRules = useMemo(
     () => showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules,
     [iterationSettings.maxFlightsPerPush, rules, showIterationControls],
@@ -102,7 +106,14 @@ export function PlanningToolPage({
   const shouldEnforceUrgentPairingLimit = enforcePairingQuality || preventUrgentPairings;
   const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : standardThreeFlightPairingTargetPercent;
   const planningResources = useMemo(() => createPlanningResources(flights, runRules, defaultShiftStartIncrementMinutes), [flights, runRules]);
-  const visibleResult = useMemo(() => result ? filterScheduleResultByOperation(result, operationType) : null, [operationType, result]);
+  const activeResult = manualControlEnabled && manualPlan ? manualPlan.result : result;
+  const visibleResult = useMemo(() => activeResult ? filterScheduleResultByOperation(activeResult, operationType) : null, [operationType, activeResult]);
+
+  useEffect(() => {
+    setManualControlEnabled(false);
+    setManualPlan(null);
+    setAllowReducedManualGaps(false);
+  }, [result]);
 
   function handleCreatePairings(options?: { maxStartTimes?: number; shiftStartIncrementMinutes?: number }) {
     const shiftStartIncrementMinutes = options?.shiftStartIncrementMinutes ?? defaultShiftStartIncrementMinutes;
@@ -127,6 +138,38 @@ export function PlanningToolPage({
     const selectedStartTimes = selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
     const targetResources = createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules);
     onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
+  }
+
+  function handleManualControlToggle() {
+    if (!result) return;
+    if (manualControlEnabled) {
+      setManualControlEnabled(false);
+      return;
+    }
+    setManualPlan(createManualPlanState(result));
+    setManualControlEnabled(true);
+  }
+
+  function handlePushTimeChange(change: { pushId: string; deltaMinutes: number }) {
+    if (!manualPlan || change.deltaMinutes === 0) return;
+    setManualPlan(movePushByMinutes(manualPlan, change.pushId, change.deltaMinutes, runRules));
+  }
+
+  function handleFlightMove(change: { flightId: string; targetPushId: string; targetSequence: number }) {
+    if (!manualPlan) return;
+    setManualPlan(moveFlightToPush(manualPlan, change.flightId, change.targetPushId, change.targetSequence, runRules, {
+      gapMinutes: allowReducedManualGaps ? 5 : undefined,
+    }));
+  }
+
+  function handleManualUndo() {
+    if (!manualPlan) return;
+    setManualPlan(undoManualMove(manualPlan));
+  }
+
+  function handleManualReset() {
+    if (!manualPlan) return;
+    setManualPlan(resetManualPlan(manualPlan));
   }
 
   function handleTimelineTaskTypeChange(change: FlightTaskTypeChange) {
@@ -199,6 +242,17 @@ export function PlanningToolPage({
             />
           )}
           {showRiskDefinitions && <RiskDefinitionsPanel />}
+          <ManualControlPanel
+            enabled={manualControlEnabled}
+            historyCount={manualPlan?.history.length ?? 0}
+            manualPushCount={manualPlan ? Object.keys(manualPlan.pushOverrides).length : 0}
+            manualFlightCount={manualPlan ? Object.keys(manualPlan.flightOverrides).length : 0}
+            allowReducedManualGaps={allowReducedManualGaps}
+            onToggle={handleManualControlToggle}
+            onUndo={handleManualUndo}
+            onReset={handleManualReset}
+            onReducedGapChange={setAllowReducedManualGaps}
+          />
           <DispatcherTimeline
             flights={[]}
             drivers={timelineDrivers}
@@ -206,6 +260,9 @@ export function PlanningToolPage({
             driverLabelMode={timelineDriverLabelMode}
             showDriverRadio={showTimelineDriverRadio}
             onTaskTypeChange={onFlightTaskTypeChange ? handleTimelineTaskTypeChange : undefined}
+            manualControlActive={manualControlEnabled}
+            onPushTimeChange={handlePushTimeChange}
+            onFlightMove={handleFlightMove}
           />
           {resourcePlanPosition === "below-timeline" && <PlanningResourcePanel result={visibleResult} startWaves={startWaves} title={resourcePlanTitle} description={resourcePlanDescription} />}
           <Panel className="p-5">
@@ -219,6 +276,94 @@ export function PlanningToolPage({
         </>
       )}
     </div>
+  );
+}
+
+function ManualControlPanel({
+  enabled,
+  historyCount,
+  manualPushCount,
+  manualFlightCount,
+  allowReducedManualGaps,
+  onToggle,
+  onUndo,
+  onReset,
+  onReducedGapChange,
+}: {
+  enabled: boolean;
+  historyCount: number;
+  manualPushCount: number;
+  manualFlightCount: number;
+  allowReducedManualGaps: boolean;
+  onToggle: () => void;
+  onUndo: () => void;
+  onReset: () => void;
+  onReducedGapChange: (enabled: boolean) => void;
+}) {
+  return (
+    <Panel className={`p-4 ${enabled ? "border-blue-200 bg-blue-50/60" : ""}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <SlidersHorizontal size={16} aria-hidden="true" />
+            Beta Manual Control
+            {enabled && <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white">Live</span>}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Drag push blocks horizontally to snap timing in 5-minute increments, or drag an individual flight chip onto another push to recalculate both pushes.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {enabled && (
+            <label className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-800 shadow-sm">
+              <input
+                type="checkbox"
+                checked={allowReducedManualGaps}
+                onChange={(event) => onReducedGapChange(event.target.checked)}
+                className="h-4 w-4 accent-amber-500"
+              />
+              Allow 5m gaps
+            </label>
+          )}
+          <button
+            type="button"
+            onClick={onToggle}
+            className={`rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition ${enabled ? "border border-slate-200 bg-white text-ink hover:bg-slate-50" : "bg-ink text-white hover:bg-slate-800"}`}
+          >
+            {enabled ? "Exit Manual Control" : "Enter Manual Control"}
+          </button>
+          {enabled && (
+            <>
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={historyCount === 0}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+              >
+                <Undo2 size={15} aria-hidden="true" />
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={onReset}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
+              >
+                <RotateCcw size={15} aria-hidden="true" />
+                Reset
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {enabled && (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+          <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">{manualPushCount} adjusted pushes</span>
+          <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">{manualFlightCount} adjusted flights</span>
+          <span className="rounded-full bg-white px-2.5 py-1 shadow-sm">{historyCount} undo step{historyCount === 1 ? "" : "s"}</span>
+          {allowReducedManualGaps && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-800">Reduced gaps flag as exceptions</span>}
+        </div>
+      )}
+    </Panel>
   );
 }
 

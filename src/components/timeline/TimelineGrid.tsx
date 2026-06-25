@@ -4,7 +4,19 @@ import { DriverRow } from "./DriverRow";
 import { useTimelineScale } from "./TimelineScaleContext";
 import { timelineWidth } from "./timelineUtils";
 
-export function TimelineGrid({ drivers, flights, pushes = [] }: { drivers: Driver[]; flights: FlightAssignment[]; pushes?: Push[] }) {
+export function TimelineGrid({
+  drivers,
+  flights,
+  pushes = [],
+  manualControlActive = false,
+  onManualFlightDrop,
+}: {
+  drivers: Driver[];
+  flights: FlightAssignment[];
+  pushes?: Push[];
+  manualControlActive?: boolean;
+  onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
+}) {
   const scale = useTimelineScale();
   return (
     <div className="relative bg-white" style={{ width: timelineWidth(scale) }}>
@@ -14,6 +26,8 @@ export function TimelineGrid({ drivers, flights, pushes = [] }: { drivers: Drive
           driver={driver}
           flights={flights.filter((flight) => flight.driverId === driver.id)}
           pushes={pushes.filter((push) => resourceIds(push.driverId).includes(driver.id))}
+          manualControlActive={manualControlActive}
+          onManualFlightDrop={onManualFlightDrop}
         />
       ))}
     </div>

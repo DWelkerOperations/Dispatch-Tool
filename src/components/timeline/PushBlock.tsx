@@ -1,6 +1,7 @@
-import { useDraggable } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
+import { useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { Driver, Push, RiskSeverity, ServiceEvent } from "../../types/dispatch";
 import { resourceIds } from "../../utils/resources";
 import { useTimelineScale } from "./TimelineScaleContext";
@@ -12,10 +13,26 @@ type PushBlockProps = {
   push: Push;
   driver?: Driver;
   shiftLabel?: string;
+  manualControlActive?: boolean;
+  onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
 };
 
-export function PushBlock({ push, driver, shiftLabel }: PushBlockProps) {
+export function PushBlock({ push, driver, shiftLabel, manualControlActive = false, onManualFlightDrop }: PushBlockProps) {
   const scale = useTimelineScale();
+  const { attributes: pushAttributes, listeners: pushListeners, setNodeRef: setPushDragRef, transform: pushTransform, isDragging: pushIsDragging } = useDraggable({
+    id: `push-time:${push.id}`,
+    data: { kind: "push-time-drag", pushId: push.id },
+    disabled: !manualControlActive,
+  });
+  const { isOver: pushIsOver, setNodeRef: setPushDropRef } = useDroppable({
+    id: `manual-push:${push.id}:append`,
+    data: { kind: "manual-push-drop", pushId: push.id, sequence: push.flights.length },
+    disabled: !manualControlActive,
+  });
+  const setPushNodeRef = (node: HTMLElement | null) => {
+    setPushDragRef(node);
+    setPushDropRef(node);
+  };
   const minuteWidth = pixelsPerMinute * scale;
   const loadLeft = minutesFromStart(push.loadStartTime) * minuteWidth;
   const loadWidth = Math.max(24, push.loadDurationMinutes * minuteWidth);
@@ -42,11 +59,19 @@ export function PushBlock({ push, driver, shiftLabel }: PushBlockProps) {
         </div>
       )}
       <div
-        className={`group/push absolute top-1 z-30 h-7 rounded-lg border shadow-sm hover:z-[900] ${tone}`}
-        style={{ left, width }}
+        ref={setPushNodeRef}
+        data-manual-push-id={push.id}
+        data-manual-push-sequence={push.flights.length}
+        className={`group/push absolute top-1 z-30 h-7 rounded-lg border shadow-sm hover:z-[900] ${tone} ${push.modifiedByManualControl ? "ring-2 ring-blue-500 ring-offset-1" : ""} ${pushIsOver ? "outline outline-2 outline-emerald-400 outline-offset-2" : ""} ${pushIsDragging ? "z-[1100] opacity-80 shadow-xl" : ""}`}
+        style={{ left, width, transform: CSS.Translate.toString(pushTransform) }}
       >
-        <div className="group/label absolute inset-y-0 left-0 z-[980] flex min-w-[44px] items-center px-2 text-[11px] font-semibold">
+        <div
+          className={`group/label absolute inset-y-0 left-0 z-[980] flex min-w-[44px] items-center px-2 text-[11px] font-semibold ${manualControlActive ? "cursor-grab active:cursor-grabbing" : ""}`}
+          {...(manualControlActive ? pushListeners : {})}
+          {...(manualControlActive ? pushAttributes : {})}
+        >
           <span className="rounded bg-white/85 px-1 shadow-sm">{push.id}</span>
+          {push.modifiedByManualControl && <span className="ml-1 rounded bg-blue-600 px-1 text-[9px] uppercase text-white">Manual</span>}
           <div className="pointer-events-none absolute left-0 top-8 z-[2000] hidden w-80 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs font-normal text-slate-600 shadow-2xl group-hover/label:block">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -93,6 +118,8 @@ export function PushBlock({ push, driver, shiftLabel }: PushBlockProps) {
             push={push}
             pushStartMinutes={start}
             shiftLabel={shiftLabel}
+            manualControlActive={manualControlActive}
+            onManualFlightDrop={onManualFlightDrop}
           />
         ))}
       </div>
@@ -107,6 +134,8 @@ function PushServiceTask({
   push,
   pushStartMinutes,
   shiftLabel,
+  manualControlActive,
+  onManualFlightDrop,
 }: {
   driver?: Driver;
   event: ServiceEvent;
@@ -114,24 +143,74 @@ function PushServiceTask({
   push: Push;
   pushStartMinutes: number;
   shiftLabel?: string;
+  manualControlActive?: boolean;
+  onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
 }) {
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `push-task:${push.id}:${event.flightId}`,
     data: { kind: "push-service-task", flightId: event.flightId, pushId: push.id },
   });
+  const { isOver, setNodeRef: setDropRef } = useDroppable({
+    id: `manual-push:${push.id}:${event.flightId}`,
+    data: { kind: "manual-push-drop", pushId: push.id, sequence: event.currentSequence ?? push.serviceEvents.findIndex((item) => item.flightId === event.flightId) },
+    disabled: !manualControlActive,
+  });
+  const setTaskNodeRef = (node: HTMLElement | null) => {
+    setNodeRef(node);
+    setDropRef(node);
+  };
   const eventLeft = (timeToMinutes(event.serviceStart) - pushStartMinutes) * minuteWidth;
   const eventWidth = Math.max(30, event.serviceDurationMinutes * minuteWidth);
   const eventRiskTone = eventRiskRing[event.riskSeverity];
+  const sequence = event.currentSequence ?? push.serviceEvents.findIndex((item) => item.flightId === event.flightId);
+
+  function handleManualRelease(clientX: number, clientY: number) {
+    if (!manualControlActive || !onManualFlightDrop) return;
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (!start) return;
+    const movedPixels = Math.hypot(clientX - start.x, clientY - start.y);
+    if (movedPixels < 8) return;
+
+    const target = manualDropTargetFromPoint(clientX, clientY, event.flightId, push.id);
+    if (!target) return;
+    onManualFlightDrop({ flightId: event.flightId, targetPushId: target.pushId, targetSequence: target.sequence });
+  }
+
+  function handleWindowPointerUp(pointerEvent: globalThis.PointerEvent) {
+    handleManualRelease(pointerEvent.clientX, pointerEvent.clientY);
+  }
+
+  function handleWindowMouseUp(mouseEvent: globalThis.MouseEvent) {
+    handleManualRelease(mouseEvent.clientX, mouseEvent.clientY);
+  }
+
+  function handlePointerDown(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
+    listeners?.onPointerDown?.(pointerEvent);
+    pointerStartRef.current = { x: pointerEvent.clientX, y: pointerEvent.clientY };
+    if (!manualControlActive || !onManualFlightDrop) return;
+    window.addEventListener("pointerup", handleWindowPointerUp, { once: true, capture: true });
+  }
+
+  function handleMouseDown(mouseEvent: ReactMouseEvent<HTMLButtonElement>) {
+    pointerStartRef.current = { x: mouseEvent.clientX, y: mouseEvent.clientY };
+    if (!manualControlActive || !onManualFlightDrop) return;
+    window.addEventListener("mouseup", handleWindowMouseUp, { once: true, capture: true });
+  }
 
   return (
     <button
-      ref={setNodeRef}
+      ref={setTaskNodeRef}
       {...listeners}
       {...attributes}
       type="button"
       data-push-task-flight-id={event.flightId}
+      data-push-task-sequence={sequence}
       data-push-task-service-type={event.serviceType}
-      className={`group/event absolute top-1 z-40 flex h-5 cursor-grab items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[950] ${serviceStyle(event.serviceType)} ${eventRiskTone} ${isDragging ? "z-[1000] opacity-75 shadow-lg" : ""}`}
+      onPointerDown={handlePointerDown}
+      onMouseDown={handleMouseDown}
+      className={`group/event absolute top-1 z-40 flex h-5 cursor-grab items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[950] ${serviceStyle(event.serviceType)} ${eventRiskTone} ${event.modifiedByManualControl ? "ring-2 ring-blue-600 ring-offset-1" : ""} ${isOver ? "outline outline-2 outline-emerald-500 outline-offset-1" : ""} ${isDragging ? "z-[1000] opacity-75 shadow-lg" : ""}`}
       style={{
         left: eventLeft,
         width: eventWidth,
@@ -140,6 +219,7 @@ function PushServiceTask({
     >
       <GripVertical size={10} className="shrink-0 opacity-60" />
       <span className="truncate">{event.flightNumber} {event.gate}</span>
+      {event.modifiedByManualControl && <span className="ml-0.5 rounded bg-white/80 px-0.5 text-[8px] uppercase text-blue-800">M</span>}
       <div className="pointer-events-none absolute left-0 top-7 z-[999] hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs font-normal text-slate-600 shadow-xl group-hover/event:block">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -163,6 +243,45 @@ function PushServiceTask({
       </div>
     </button>
   );
+}
+
+function manualDropTargetFromPoint(clientX: number, clientY: number, activeFlightId: string, activePushId: string) {
+  const elements = document.elementsFromPoint(clientX, clientY);
+
+  for (const element of elements) {
+    const taskElement = element.closest<HTMLElement>("[data-push-task-flight-id]");
+    if (taskElement && taskElement.dataset.pushTaskFlightId !== activeFlightId) {
+      const pushElement = taskElement.closest<HTMLElement>("[data-manual-push-id]");
+      if (pushElement?.dataset.manualPushId && pushElement.dataset.manualPushId !== activePushId) {
+        return {
+          pushId: pushElement.dataset.manualPushId,
+          sequence: Number(taskElement.dataset.pushTaskSequence ?? 0),
+        };
+      }
+    }
+
+    const pushElement = element.closest<HTMLElement>("[data-manual-push-id]");
+    if (pushElement?.dataset.manualPushId && pushElement.dataset.manualPushId !== activePushId) {
+      return {
+        pushId: pushElement.dataset.manualPushId,
+        sequence: Number(pushElement.dataset.manualPushSequence ?? 0),
+      };
+    }
+  }
+
+  for (const pushElement of document.querySelectorAll<HTMLElement>("[data-manual-push-id]")) {
+    if (pushElement.dataset.manualPushId === activePushId) continue;
+    const rect = pushElement.getBoundingClientRect();
+    const isInsidePush = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    if (isInsidePush) {
+      return {
+        pushId: pushElement.dataset.manualPushId ?? "",
+        sequence: Number(pushElement.dataset.manualPushSequence ?? 0),
+      };
+    }
+  }
+
+  return null;
 }
 
 function minutesToTime(totalMinutes: number) {

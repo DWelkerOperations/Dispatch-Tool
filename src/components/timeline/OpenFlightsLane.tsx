@@ -4,7 +4,17 @@ import { PushBlock } from "./PushBlock";
 import { useTimelineScale } from "./TimelineScaleContext";
 import { rowHeight, timelineWidth } from "./timelineUtils";
 
-export function OpenFlightsLane({ flights, pushes = [] }: { flights: FlightAssignment[]; pushes?: Push[] }) {
+export function OpenFlightsLane({
+  flights,
+  pushes = [],
+  manualControlActive = false,
+  onManualFlightDrop,
+}: {
+  flights: FlightAssignment[];
+  pushes?: Push[];
+  manualControlActive?: boolean;
+  onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
+}) {
   const scale = useTimelineScale();
   const openItemCount = pushes.length > 0 ? pushes.length : flights.length;
   const laneHeight = pushes.length > 0
@@ -21,7 +31,7 @@ export function OpenFlightsLane({ flights, pushes = [] }: { flights: FlightAssig
         {pushes.length > 0
           ? pushes.map((push, index) => (
             <div key={push.id} className="absolute left-0" style={{ top: index * (rowHeight + 8) + 6, width: timelineWidth(scale), height: rowHeight }}>
-              <PushBlock push={push} />
+              <PushBlock push={push} manualControlActive={manualControlActive} onManualFlightDrop={onManualFlightDrop} />
             </div>
           ))
           : flights.map((flight, index) => <div key={flight.id} className="absolute left-0" style={{ top: index * 22 + 8 }}><FlightPuck flight={flight} /></div>)}

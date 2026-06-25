@@ -21,6 +21,17 @@ export type RiskSeverity = "normal" | "watch" | "urgent" | "critical";
 
 export type ServiceRiskStatus = "normal" | "watch" | "urgent-risk" | "late-risk" | "unknown-aircraft";
 
+export type ManualExceptionCode =
+  | "food-safety-window"
+  | "inbound-ready"
+  | "reduced-gap"
+  | "service-time-conflict"
+  | "driver-truck-overlap"
+  | "regional-mainline-mix"
+  | "ua-other-mix"
+  | "widebody-truck-requirement"
+  | "757-single-flight-rule";
+
 export type ServiceType =
   | "load-ua"
   | "load-other"
@@ -94,6 +105,17 @@ export type Flight = {
   loadWindowEnd: string;
   hardLatestCompletion: string;
   workloadUnits: number;
+  originalPushId?: string;
+  currentPushId?: string;
+  originalSequence?: number;
+  currentSequence?: number;
+  originalStart?: string;
+  originalEnd?: string;
+  manualStart?: string;
+  manualEnd?: string;
+  manualGapOverride?: number;
+  manualExceptionFlags?: ManualExceptionCode[];
+  modifiedByManualControl?: boolean;
 };
 
 export type Helper = {
@@ -137,6 +159,17 @@ export type ServiceEvent = {
   serviceDurationMinutes: number;
   riskStatus: ServiceRiskStatus;
   riskSeverity: RiskSeverity;
+  originalPushId?: string;
+  currentPushId?: string;
+  originalSequence?: number;
+  currentSequence?: number;
+  originalStart?: string;
+  originalEnd?: string;
+  manualStart?: string;
+  manualEnd?: string;
+  manualGapOverride?: number;
+  manualExceptionFlags?: ManualExceptionCode[];
+  modifiedByManualControl?: boolean;
 };
 
 export type Push = {
@@ -163,6 +196,11 @@ export type Push = {
   pairingScore: number;
   explanation: string;
   exceptionFlags: string[];
+  originalPushId?: string;
+  manualStart?: string;
+  manualEnd?: string;
+  manualExceptionFlags?: ManualExceptionCode[];
+  modifiedByManualControl?: boolean;
 };
 
 export type ResourceInputs = {
@@ -194,6 +232,43 @@ export type ScheduleResult = {
   summary: ScheduleSummary;
   resourceBottlenecks: string[];
   rules: PlanningRules;
+};
+
+export type ManualFlightOverride = {
+  flightId: string;
+  originalPushId: string;
+  currentPushId: string;
+  originalSequence: number;
+  currentSequence: number;
+  originalStart: string;
+  originalEnd: string;
+  manualStart?: string;
+  manualEnd?: string;
+  manualGapOverride?: number;
+  exceptionFlags: ManualExceptionCode[];
+  modifiedByManualControl: boolean;
+};
+
+export type ManualPushOverride = {
+  pushId: string;
+  originalStart: string;
+  originalEnd: string;
+  manualStart?: string;
+  manualEnd?: string;
+  manualGapOverride?: number;
+  exceptionFlags: ManualExceptionCode[];
+  modifiedByManualControl: boolean;
+};
+
+export type ManualPlanSnapshot = {
+  result: ScheduleResult;
+  flightOverrides: Record<string, ManualFlightOverride>;
+  pushOverrides: Record<string, ManualPushOverride>;
+};
+
+export type ManualPlanState = ManualPlanSnapshot & {
+  baseline: ScheduleResult;
+  history: ManualPlanSnapshot[];
 };
 
 export type PairingStrategy = {

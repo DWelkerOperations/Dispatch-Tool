@@ -1,8 +1,9 @@
-import { DndContext, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, pointerWithin, useDroppable, type DragEndEvent } from "@dnd-kit/core";
 import { useEffect, useState } from "react";
 import { mockDrivers } from "../../data/mockDrivers";
 import { mockFlights } from "../../data/mockFlights";
 import type { Driver, FlightAssignment, Push, ServiceType } from "../../types/dispatch";
+import { snapToFiveMinutes } from "../../engine/manualControl";
 import type { FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { Panel } from "../ui/Panel";
 import { DriverColumn } from "./DriverColumn";
@@ -11,7 +12,7 @@ import { TimelineGrid } from "./TimelineGrid";
 import { TimelineHeader } from "./TimelineHeader";
 import { TimelineLegend } from "./TimelineLegend";
 import { TimelineScaleContext } from "./TimelineScaleContext";
-import { serviceLabels, serviceStyle, timelineWidth } from "./timelineUtils";
+import { pixelsPerMinute, serviceLabels, serviceStyle, timelineWidth } from "./timelineUtils";
 
 export function DispatcherTimeline({
   flights: sourceFlights = mockFlights,
@@ -20,6 +21,9 @@ export function DispatcherTimeline({
   driverLabelMode = "actual",
   showDriverRadio = true,
   onTaskTypeChange,
+  manualControlActive = false,
+  onPushTimeChange,
+  onFlightMove,
 }: {
   flights?: FlightAssignment[];
   drivers?: Driver[];
@@ -27,6 +31,9 @@ export function DispatcherTimeline({
   driverLabelMode?: "actual" | "sequential";
   showDriverRadio?: boolean;
   onTaskTypeChange?: (change: FlightTaskTypeChange) => void;
+  manualControlActive?: boolean;
+  onPushTimeChange?: (change: { pushId: string; deltaMinutes: number }) => void;
+  onFlightMove?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
 }) {
   const [flights, setFlights] = useState<FlightAssignment[]>(sourceFlights);
   const [timelineScale, setTimelineScale] = useState(1);
@@ -43,6 +50,25 @@ export function DispatcherTimeline({
         flightId: String(activeData.flightId),
         serviceType: overData.serviceType as ServiceType,
       });
+      return;
+    }
+
+    if (manualControlActive && activeData?.kind === "push-service-task") {
+      const pointDropData = manualDropDataFromPoint(event, String(activeData.flightId), String(activeData.pushId));
+      const manualDropData = pointDropData ?? (overData?.kind === "manual-push-drop" ? overData : null);
+      if (!manualDropData) return;
+      if (String(manualDropData.pushId) === String(activeData.pushId)) return;
+      onFlightMove?.({
+        flightId: String(activeData.flightId),
+        targetPushId: String(manualDropData.pushId),
+        targetSequence: Number(manualDropData.sequence ?? 0),
+      });
+      return;
+    }
+
+    if (manualControlActive && activeData?.kind === "push-time-drag") {
+      const deltaMinutes = snapToFiveMinutes(event.delta.x / (pixelsPerMinute * timelineScale));
+      onPushTimeChange?.({ pushId: String(activeData.pushId), deltaMinutes });
       return;
     }
 
@@ -66,7 +92,7 @@ export function DispatcherTimeline({
   };
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
+    <DndContext collisionDetection={pointerWithin} onDragEnd={handleDragEnd}>
       <TimelineScaleContext.Provider value={timelineScale}>
       <Panel className="overflow-hidden">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-slate-200 bg-white px-5 py-2.5">
@@ -104,14 +130,48 @@ export function DispatcherTimeline({
         <div className="overflow-auto">
           <div style={{ minWidth: 380 + timelineWidth(timelineScale) }}>
             <TimelineHeader showDriverRadio={showDriverRadio} />
-            <div className="flex"><DriverColumn drivers={drivers} pushes={assignedPushes} driverLabelMode={driverLabelMode} showRadio={showDriverRadio} /><TimelineGrid drivers={drivers} flights={pushes.length > 0 ? [] : assignedFlights} pushes={assignedPushes} /></div>
-            {openItemCount > 0 && <OpenFlightsLane flights={pushes.length > 0 ? [] : openFlights} pushes={openPushes} />}
+            <div className="flex"><DriverColumn drivers={drivers} pushes={assignedPushes} driverLabelMode={driverLabelMode} showRadio={showDriverRadio} /><TimelineGrid drivers={drivers} flights={pushes.length > 0 ? [] : assignedFlights} pushes={assignedPushes} manualControlActive={manualControlActive} onManualFlightDrop={onFlightMove} /></div>
+            {openItemCount > 0 && <OpenFlightsLane flights={pushes.length > 0 ? [] : openFlights} pushes={openPushes} manualControlActive={manualControlActive} onManualFlightDrop={onFlightMove} />}
           </div>
         </div>
       </Panel>
       </TimelineScaleContext.Provider>
     </DndContext>
   );
+}
+
+function manualDropDataFromPoint(event: DragEndEvent, activeFlightId: string, activePushId: string) {
+  const rect = event.active.rect.current.initial;
+  if (!rect) return null;
+
+  const centerX = rect.left + event.delta.x + rect.width / 2;
+  const centerY = rect.top + event.delta.y + rect.height / 2;
+  const elements = document.elementsFromPoint(centerX, centerY);
+
+  for (const element of elements) {
+    const taskElement = element.closest<HTMLElement>("[data-push-task-flight-id]");
+    if (taskElement && taskElement.dataset.pushTaskFlightId !== activeFlightId) {
+      const pushElement = taskElement.closest<HTMLElement>("[data-manual-push-id]");
+      if (pushElement?.dataset.manualPushId && pushElement.dataset.manualPushId !== activePushId) {
+        return {
+          kind: "manual-push-drop",
+          pushId: pushElement.dataset.manualPushId,
+          sequence: Number(taskElement.dataset.pushTaskSequence ?? 0),
+        };
+      }
+    }
+
+    const pushElement = element.closest<HTMLElement>("[data-manual-push-id]");
+    if (pushElement?.dataset.manualPushId && pushElement.dataset.manualPushId !== activePushId) {
+      return {
+        kind: "manual-push-drop",
+        pushId: pushElement.dataset.manualPushId,
+        sequence: Number(pushElement.dataset.manualPushSequence ?? 0),
+      };
+    }
+  }
+
+  return null;
 }
 
 const editableTaskTypes: ServiceType[] = ["load-ua", "load-other", "intl-strip", "other-work", "positioning", "unplanned"];

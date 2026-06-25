@@ -60,6 +60,16 @@ Expected beta URL when the `v1.1Beta` branch exists:
 https://dwelker123-glitch.github.io/Dispatch-Tool/v1.1Beta/
 ```
 
+### v1.1Beta manual control
+
+The beta Planning tab includes a manual-control layer that keeps the generated plan as the baseline, then lets planners adjust a copy of that plan:
+
+- Enter Manual Control after creating pairings.
+- Drag push blocks horizontally to snap dispatch timing in 5-minute increments.
+- Drag an individual flight chip onto another push to recalculate the source and destination pushes.
+- Use the 5-minute gap option only for manual recovery scenarios; reduced gaps remain visible as manual exceptions.
+- Use Undo for the last manual move or Reset to return to the generated recommendation.
+
 Deployment behavior:
 
 - Viewers do not need a GitHub account or GitHub login.

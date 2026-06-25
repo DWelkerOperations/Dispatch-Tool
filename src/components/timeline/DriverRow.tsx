@@ -6,7 +6,19 @@ import { minutesToTime, plannedShiftForDriver } from "./shiftPlanning";
 import { useTimelineScale } from "./TimelineScaleContext";
 import { minutesFromStart, pixelsPerMinute, rowHeight, timeToMinutes, timelineEnd, timelineStart, timelineWidth } from "./timelineUtils";
 
-export function DriverRow({ driver, flights, pushes = [] }: { driver: Driver; flights: FlightAssignment[]; pushes?: Push[] }) {
+export function DriverRow({
+  driver,
+  flights,
+  pushes = [],
+  manualControlActive = false,
+  onManualFlightDrop,
+}: {
+  driver: Driver;
+  flights: FlightAssignment[];
+  pushes?: Push[];
+  manualControlActive?: boolean;
+  onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
+}) {
   const scale = useTimelineScale();
   const minuteWidth = pixelsPerMinute * scale;
   const { setNodeRef, isOver } = useDroppable({ id: driver.id });
@@ -44,7 +56,16 @@ export function DriverRow({ driver, flights, pushes = [] }: { driver: Driver; fl
         />
       ))}
       {lunch && <LunchBlock lunch={lunch} minuteWidth={minuteWidth} />}
-      {pushes.map((push) => <PushBlock key={push.id} push={push} driver={driver} shiftLabel={`${plannedShift.start}-${plannedShift.end}`} />)}
+      {pushes.map((push) => (
+        <PushBlock
+          key={push.id}
+          push={push}
+          driver={driver}
+          shiftLabel={`${plannedShift.start}-${plannedShift.end}`}
+          manualControlActive={manualControlActive}
+          onManualFlightDrop={onManualFlightDrop}
+        />
+      ))}
       {flights.map((flight) => <FlightPuck key={flight.id} flight={flight} driver={driver} />)}
     </div>
   );
