@@ -13,6 +13,7 @@ import { planningRules as defaultPlanningRules } from "./data/planningRules";
 import { ordJuneTripmasterReferenceId, referenceSchedules, type ReferenceSchedule } from "./data/referenceSchedules";
 import { exportResourceGuideWorkbook } from "./export/resourceGuideExport";
 import type { AirportCode, AppTab, FlightAssignment, OperationView, PlanningRules, ScheduleResult } from "./types/dispatch";
+import type { FlightTaskTypeChange } from "./utils/taskTypeUpdates";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("resource-guide");
@@ -190,6 +191,12 @@ export default function App() {
     setPlanningOperationType(operationType);
   }
 
+  function handlePlanningFlightTaskTypeChange(change: FlightTaskTypeChange) {
+    setPlanningFlights((currentFlights) => currentFlights.map((flight) => (
+      flight.id === change.flightId ? { ...flight, serviceType: change.serviceType, edited: true } : flight
+    )));
+  }
+
   function handleRulesChange(nextRules: PlanningRules) {
     setActiveRules(nextRules);
     setPlanningResult(null);
@@ -228,6 +235,7 @@ export default function App() {
           timelineDriverLabelMode="sequential"
           showTimelineDriverRadio={false}
           onDateChange={handleDateChange}
+          onFlightTaskTypeChange={handlePlanningFlightTaskTypeChange}
           onOperationTypeChange={handleOperationTypeChange}
           onResultChange={setPlanningResult}
         />

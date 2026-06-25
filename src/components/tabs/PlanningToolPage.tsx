@@ -6,6 +6,7 @@ import { mockTrucks } from "../../data/mockResources";
 import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, rejectUnassignedPushes, timeToMinutes } from "../../engine/scheduler";
 import { categoryForAircraft } from "../../import/aircraftMap";
 import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
+import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { resourceIds } from "../../utils/resources";
 import { DispatcherTimeline } from "../timeline/DispatcherTimeline";
 import { OperationToggle } from "../ui/OperationToggle";
@@ -39,6 +40,7 @@ type PlanningToolPageProps = {
   exportButtonLabel?: string;
   maxAllowedStartTimes?: number;
   onDateChange: (date: string) => void;
+  onFlightTaskTypeChange?: (change: FlightTaskTypeChange) => void;
   onOperationTypeChange: (operationType: OperationView) => void;
   onResultChange: (result: ScheduleResult | null) => void;
   onMaxAllowedStartTimesChange?: (value: number) => void;
@@ -80,6 +82,7 @@ export function PlanningToolPage({
   exportButtonLabel = "Export",
   maxAllowedStartTimes = defaultMaxShiftBidStartTimes,
   onDateChange,
+  onFlightTaskTypeChange,
   onOperationTypeChange,
   onResultChange,
   onMaxAllowedStartTimesChange,
@@ -91,7 +94,10 @@ export function PlanningToolPage({
     targetThreeFlightPairingPercent: standardThreeFlightPairingTargetPercent,
     maxFlightsPerPush: 3,
   });
-  const runRules = showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules;
+  const runRules = useMemo(
+    () => showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules,
+    [iterationSettings.maxFlightsPerPush, rules, showIterationControls],
+  );
   const urgentPairingLimit = showIterationControls && iterationSettings.allowUrgentPairings ? iterationSettings.urgentPairingLimitPercent : strictUrgentPairingLimitPercent;
   const shouldEnforceUrgentPairingLimit = enforcePairingQuality || preventUrgentPairings;
   const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : standardThreeFlightPairingTargetPercent;
@@ -121,6 +127,12 @@ export function PlanningToolPage({
     const selectedStartTimes = selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
     const targetResources = createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules);
     onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
+  }
+
+  function handleTimelineTaskTypeChange(change: FlightTaskTypeChange) {
+    if (!result) return;
+    onResultChange(applyFlightTaskTypeChange(result, change));
+    onFlightTaskTypeChange?.(change);
   }
 
   const timelineDrivers = visibleResult ? driversUsedByPlan(planningResources.drivers, visibleResult.pushes) : planningResources.drivers.slice(0, 12);
@@ -193,6 +205,7 @@ export function PlanningToolPage({
             pushes={visibleResult.pushes}
             driverLabelMode={timelineDriverLabelMode}
             showDriverRadio={showTimelineDriverRadio}
+            onTaskTypeChange={onFlightTaskTypeChange ? handleTimelineTaskTypeChange : undefined}
           />
           {resourcePlanPosition === "below-timeline" && <PlanningResourcePanel result={visibleResult} startWaves={startWaves} title={resourcePlanTitle} description={resourcePlanDescription} />}
           <Panel className="p-5">

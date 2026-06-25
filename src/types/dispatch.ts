@@ -128,6 +128,7 @@ export type ServiceEvent = {
   flightNumber: string;
   gate: string;
   aircraftType: string;
+  serviceType: ServiceType;
   destinationAirport?: string;
   departureTime: string;
   aircraftArrivalTime: string;

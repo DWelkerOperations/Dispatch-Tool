@@ -1,8 +1,9 @@
-import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, useDroppable, type DragEndEvent } from "@dnd-kit/core";
 import { useEffect, useState } from "react";
 import { mockDrivers } from "../../data/mockDrivers";
 import { mockFlights } from "../../data/mockFlights";
-import type { Driver, FlightAssignment, Push } from "../../types/dispatch";
+import type { Driver, FlightAssignment, Push, ServiceType } from "../../types/dispatch";
+import type { FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { Panel } from "../ui/Panel";
 import { DriverColumn } from "./DriverColumn";
 import { OpenFlightsLane } from "./OpenFlightsLane";
@@ -10,7 +11,7 @@ import { TimelineGrid } from "./TimelineGrid";
 import { TimelineHeader } from "./TimelineHeader";
 import { TimelineLegend } from "./TimelineLegend";
 import { TimelineScaleContext } from "./TimelineScaleContext";
-import { timelineWidth } from "./timelineUtils";
+import { serviceLabels, serviceStyle, timelineWidth } from "./timelineUtils";
 
 export function DispatcherTimeline({
   flights: sourceFlights = mockFlights,
@@ -18,12 +19,14 @@ export function DispatcherTimeline({
   pushes = [],
   driverLabelMode = "actual",
   showDriverRadio = true,
+  onTaskTypeChange,
 }: {
   flights?: FlightAssignment[];
   drivers?: Driver[];
   pushes?: Push[];
   driverLabelMode?: "actual" | "sequential";
   showDriverRadio?: boolean;
+  onTaskTypeChange?: (change: FlightTaskTypeChange) => void;
 }) {
   const [flights, setFlights] = useState<FlightAssignment[]>(sourceFlights);
   const [timelineScale, setTimelineScale] = useState(1);
@@ -33,7 +36,17 @@ export function DispatcherTimeline({
   }, [sourceFlights]);
 
   function handleDragEnd(event: DragEndEvent) {
-    const flightId = String(event.active.id);
+    const activeData = event.active.data.current;
+    const overData = event.over?.data.current;
+    if (activeData?.kind === "push-service-task" && overData?.kind === "task-type-drop-zone") {
+      onTaskTypeChange?.({
+        flightId: String(activeData.flightId),
+        serviceType: overData.serviceType as ServiceType,
+      });
+      return;
+    }
+
+    const flightId = String(activeData?.flightId ?? event.active.id);
     const newDriverId = event.over?.id ? String(event.over.id) : null;
     if (!newDriverId) return;
     setFlights((currentFlights) => currentFlights.map((flight) => flight.id === flightId ? { ...flight, driverId: newDriverId, edited: true } : flight));
@@ -86,6 +99,7 @@ export function DispatcherTimeline({
           </div>
         </div>
         <TimelineRiskNotice watch={riskCounts.watch} urgent={riskCounts.urgent} critical={riskCounts.critical} />
+        {onTaskTypeChange && <TaskTypeDropZoneBar />}
         <TimelineLegend />
         <div className="overflow-auto">
           <div style={{ minWidth: 380 + timelineWidth(timelineScale) }}>
@@ -97,6 +111,34 @@ export function DispatcherTimeline({
       </Panel>
       </TimelineScaleContext.Provider>
     </DndContext>
+  );
+}
+
+const editableTaskTypes: ServiceType[] = ["load-ua", "load-other", "intl-strip", "other-work", "positioning", "unplanned"];
+
+function TaskTypeDropZoneBar() {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-5 py-2.5">
+      <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Task type</span>
+      {editableTaskTypes.map((serviceType) => <TaskTypeDropZone key={serviceType} serviceType={serviceType} />)}
+    </div>
+  );
+}
+
+function TaskTypeDropZone({ serviceType }: { serviceType: ServiceType }) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `task-type:${serviceType}`,
+    data: { kind: "task-type-drop-zone", serviceType },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-task-type-dropzone={serviceType}
+      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm transition ${serviceStyle(serviceType)} ${isOver ? "scale-[1.02] ring-2 ring-ink ring-offset-1" : ""}`}
+    >
+      {serviceLabels[serviceType]}
+    </div>
   );
 }
 

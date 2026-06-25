@@ -6,6 +6,7 @@ import { ordCdlDriversForDate } from "../../data/ordCdlDrivers";
 import { planningRules } from "../../data/planningRules";
 import { createDispatchSchedule, filterScheduleResultByOperation } from "../../engine/scheduler";
 import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ResourceInputs, ScheduleResult } from "../../types/dispatch";
+import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { resourceIds } from "../../utils/resources";
 import { DispatcherTimeline } from "../timeline/DispatcherTimeline";
 import { OperationToggle } from "../ui/OperationToggle";
@@ -79,6 +80,11 @@ export function DispatchToolPage({ flights = mockFlights, planningOperationType,
     setLoadedPlan(null);
   }
 
+  function handleTimelineTaskTypeChange(change: FlightTaskTypeChange) {
+    setDispatchResult((currentResult) => currentResult ? applyFlightTaskTypeChange(currentResult, change) : currentResult);
+    setLoadedPlan((currentPlan) => currentPlan ? applyFlightTaskTypeChange(currentPlan, change) : currentPlan);
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -104,7 +110,7 @@ export function DispatchToolPage({ flights = mockFlights, planningOperationType,
       {result ? (
         <>
           <ScheduleSummaryCards result={result} />
-          <DispatcherTimeline flights={[]} drivers={timelineDrivers} pushes={result.pushes} />
+          <DispatcherTimeline flights={[]} drivers={timelineDrivers} pushes={result.pushes} onTaskTypeChange={handleTimelineTaskTypeChange} />
         </>
       ) : (
         <Panel className="p-6">

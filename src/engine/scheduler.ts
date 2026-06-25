@@ -659,6 +659,7 @@ function evaluateRoute(flights: Flight[], rules: PlanningRules) {
       flightNumber: flight.flightNumber,
       gate: flight.gate,
       aircraftType: flight.aircraft,
+      serviceType: flight.serviceType,
       destinationAirport: flight.destinationAirport,
       departureTime: flight.etd,
       aircraftArrivalTime: flight.inboundEta,
