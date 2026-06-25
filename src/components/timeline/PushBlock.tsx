@@ -2,12 +2,15 @@ import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { Driver, Push, RiskSeverity, ServiceEvent } from "../../types/dispatch";
 import { resourceIds } from "../../utils/resources";
 import { useTimelineScale } from "./TimelineScaleContext";
 import { minutesFromStart, pixelsPerMinute, serviceLabels, serviceStyle, timeToMinutes } from "./timelineUtils";
 
 const kitchenUnloadMinutes = 15;
+
+type ManualDragRect = { left: number; top: number; width: number; height: number; right: number; bottom: number };
 
 type PushBlockProps = {
   push: Push;
@@ -152,8 +155,9 @@ function PushServiceTask({
     startY: number;
     currentX: number;
     currentY: number;
+    startRect: ManualDragRect;
   } | null>(null);
-  const [manualDragOffset, setManualDragOffset] = useState<{ x: number; y: number } | null>(null);
+  const [manualDragRect, setManualDragRect] = useState<ManualDragRect | null>(null);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `push-task:${push.id}:${event.flightId}`,
     data: { kind: "push-service-task", flightId: event.flightId, pushId: push.id },
@@ -182,14 +186,17 @@ function PushServiceTask({
     pointerEvent.preventDefault();
     pointerEvent.stopPropagation();
     pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+    const rect = pointerEvent.currentTarget.getBoundingClientRect();
+    const startRect = rectFromBounds(rect.left, rect.top, rect.width, rect.height);
     manualDragRef.current = {
       pointerId: pointerEvent.pointerId,
       startX: pointerEvent.clientX,
       startY: pointerEvent.clientY,
       currentX: pointerEvent.clientX,
       currentY: pointerEvent.clientY,
+      startRect,
     };
-    setManualDragOffset({ x: 0, y: 0 });
+    setManualDragRect(startRect);
   }
 
   function handleManualPointerMove(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
@@ -200,10 +207,12 @@ function PushServiceTask({
     pointerEvent.stopPropagation();
     currentDrag.currentX = pointerEvent.clientX;
     currentDrag.currentY = pointerEvent.clientY;
-    setManualDragOffset({
-      x: pointerEvent.clientX - currentDrag.startX,
-      y: pointerEvent.clientY - currentDrag.startY,
-    });
+    setManualDragRect(rectFromBounds(
+      currentDrag.startRect.left + pointerEvent.clientX - currentDrag.startX,
+      currentDrag.startRect.top + pointerEvent.clientY - currentDrag.startY,
+      currentDrag.startRect.width,
+      currentDrag.startRect.height,
+    ));
   }
 
   function handleManualPointerUp(pointerEvent: ReactPointerEvent<HTMLButtonElement>) {
@@ -213,76 +222,109 @@ function PushServiceTask({
     pointerEvent.preventDefault();
     pointerEvent.stopPropagation();
     manualDragRef.current = null;
-    setManualDragOffset(null);
 
     const movedPixels = Math.hypot(pointerEvent.clientX - currentDrag.startX, pointerEvent.clientY - currentDrag.startY);
+    const finalRect = rectFromBounds(
+      currentDrag.startRect.left + pointerEvent.clientX - currentDrag.startX,
+      currentDrag.startRect.top + pointerEvent.clientY - currentDrag.startY,
+      currentDrag.startRect.width,
+      currentDrag.startRect.height,
+    );
+    setManualDragRect(null);
     if (movedPixels < 8) return;
 
-    const target = manualDropTargetFromDraggedElement(pointerEvent.currentTarget, pointerEvent.clientX, pointerEvent.clientY, event.flightId, push.id);
+    const target = manualDropTargetFromDraggedRect(finalRect, pointerEvent.clientX, pointerEvent.clientY, event.flightId, push.id);
     if (!target || !onManualFlightDrop) return;
     onManualFlightDrop({ flightId: event.flightId, targetPushId: target.pushId, targetSequence: target.sequence });
   }
 
+  const taskClassName = `group/event absolute top-1 flex h-5 cursor-grab touch-none select-none items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[1050] ${manualControlActive ? "z-[1000]" : "z-40"} ${serviceStyle(event.serviceType)} ${eventRiskTone} ${event.modifiedByManualControl ? "ring-2 ring-blue-600 ring-offset-1" : ""} ${isOver ? "outline outline-2 outline-emerald-500 outline-offset-1" : ""} ${isDragging || manualDragRect ? "z-[1100] opacity-80 shadow-lg" : ""}`;
+
   return (
-    <button
-      ref={setTaskNodeRef}
-      {...listeners}
-      {...attributes}
-      type="button"
-      data-push-task-flight-id={event.flightId}
-      data-push-task-sequence={sequence}
-      data-push-task-service-type={event.serviceType}
-      onPointerDown={handleManualPointerDown}
-      onPointerMove={handleManualPointerMove}
-      onPointerUp={handleManualPointerUp}
-      onPointerCancel={() => {
-        manualDragRef.current = null;
-        setManualDragOffset(null);
-      }}
-      className={`group/event absolute top-1 flex h-5 cursor-grab touch-none select-none items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[1050] ${manualControlActive ? "z-[1000]" : "z-40"} ${serviceStyle(event.serviceType)} ${eventRiskTone} ${event.modifiedByManualControl ? "ring-2 ring-blue-600 ring-offset-1" : ""} ${isOver ? "outline outline-2 outline-emerald-500 outline-offset-1" : ""} ${isDragging || manualDragOffset ? "z-[1100] opacity-80 shadow-lg" : ""}`}
-      style={{
-        left: eventLeft,
-        width: eventWidth,
-        transform: manualDragOffset
-          ? CSS.Translate.toString({ x: manualDragOffset.x, y: manualDragOffset.y, scaleX: 1, scaleY: 1 })
-          : CSS.Translate.toString(transform),
-      }}
-    >
-      <GripVertical size={10} className="shrink-0 opacity-60" />
-      <span className="truncate">{event.flightNumber} {event.gate}</span>
-      {event.modifiedByManualControl && <span className="ml-0.5 rounded bg-white/80 px-0.5 text-[8px] uppercase text-blue-800">M</span>}
-      <div className="pointer-events-none absolute left-0 top-7 z-[999] hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs font-normal text-slate-600 shadow-xl group-hover/event:block">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="font-semibold text-ink">{event.flightNumber}</div>
-            <div className="mt-0.5 text-slate-500">Gate {event.gate} · {event.aircraftType}</div>
+    <>
+      <button
+        ref={setTaskNodeRef}
+        {...listeners}
+        {...attributes}
+        type="button"
+        data-push-task-flight-id={event.flightId}
+        data-push-task-sequence={sequence}
+        data-push-task-service-type={event.serviceType}
+        onPointerDown={handleManualPointerDown}
+        onPointerMove={handleManualPointerMove}
+        onPointerUp={handleManualPointerUp}
+        onPointerCancel={() => {
+          manualDragRef.current = null;
+          setManualDragRect(null);
+        }}
+        className={taskClassName}
+        style={{
+          left: eventLeft,
+          width: eventWidth,
+          opacity: manualDragRect ? 0.2 : undefined,
+          transform: CSS.Translate.toString(transform),
+        }}
+      >
+        <GripVertical size={10} className="shrink-0 opacity-60" />
+        <span className="truncate">{event.flightNumber} {event.gate}</span>
+        {event.modifiedByManualControl && <span className="ml-0.5 rounded bg-white/80 px-0.5 text-[8px] uppercase text-blue-800">M</span>}
+        <div className="pointer-events-none absolute left-0 top-7 z-[999] hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs font-normal text-slate-600 shadow-xl group-hover/event:block">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="font-semibold text-ink">{event.flightNumber}</div>
+              <div className="mt-0.5 text-slate-500">Gate {event.gate} · {event.aircraftType}</div>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">{serviceLabels[event.serviceType]}</span>
           </div>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">{serviceLabels[event.serviceType]}</span>
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
+            <span>Destination</span><strong className="text-right text-slate-800">{event.destinationAirport ?? "Domestic"}</strong>
+            <span>Aircraft arrival</span><strong className="text-right text-slate-800">{event.aircraftArrivalTime}</strong>
+            <span>Departure</span><strong className="text-right text-slate-800">{event.departureTime}</strong>
+            <span>Task type</span><strong className="text-right text-slate-800">{serviceLabels[event.serviceType]}</strong>
+            <span>Service</span><strong className="text-right text-slate-800">{event.serviceStart}-{event.serviceEnd}</strong>
+            <span>Duration</span><strong className="text-right text-slate-800">{event.serviceDurationMinutes} min</strong>
+            <span>Timing</span><strong className="text-right text-slate-800">{event.riskStatus.split("-").join(" ")}</strong>
+            <span>Risk level</span><strong className="text-right text-slate-800">{riskLabel[event.riskSeverity]}</strong>
+            <span>Push</span><strong className="text-right text-slate-800">{push.id}</strong>
+            <span>Driver shift</span><strong className="text-right text-slate-800">{shiftLabel ?? (driver ? `${driver.displayShiftStart ?? driver.shiftStart}-${driver.displayShiftEnd ?? driver.shiftEnd}` : "Open")}</strong>
+          </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
-          <span>Destination</span><strong className="text-right text-slate-800">{event.destinationAirport ?? "Domestic"}</strong>
-          <span>Aircraft arrival</span><strong className="text-right text-slate-800">{event.aircraftArrivalTime}</strong>
-          <span>Departure</span><strong className="text-right text-slate-800">{event.departureTime}</strong>
-          <span>Task type</span><strong className="text-right text-slate-800">{serviceLabels[event.serviceType]}</strong>
-          <span>Service</span><strong className="text-right text-slate-800">{event.serviceStart}-{event.serviceEnd}</strong>
-          <span>Duration</span><strong className="text-right text-slate-800">{event.serviceDurationMinutes} min</strong>
-          <span>Timing</span><strong className="text-right text-slate-800">{event.riskStatus.split("-").join(" ")}</strong>
-          <span>Risk level</span><strong className="text-right text-slate-800">{riskLabel[event.riskSeverity]}</strong>
-          <span>Push</span><strong className="text-right text-slate-800">{push.id}</strong>
-          <span>Driver shift</span><strong className="text-right text-slate-800">{shiftLabel ?? (driver ? `${driver.displayShiftStart ?? driver.shiftStart}-${driver.displayShiftEnd ?? driver.shiftEnd}` : "Open")}</strong>
-        </div>
-      </div>
-    </button>
+      </button>
+      {manualDragRect && createPortal(
+        <div
+          className={`pointer-events-none fixed z-[9999] flex h-5 items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-2xl ${serviceStyle(event.serviceType)} ${eventRiskTone}`}
+          style={{
+            left: manualDragRect.left,
+            top: manualDragRect.top,
+            width: manualDragRect.width,
+          }}
+        >
+          <GripVertical size={10} className="shrink-0 opacity-60" />
+          <span className="truncate">{event.flightNumber} {event.gate}</span>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
-function manualDropTargetFromDraggedElement(draggedElement: HTMLElement, clientX: number, clientY: number, activeFlightId: string, activePushId: string) {
-  const draggedRect = draggedElement.getBoundingClientRect();
+function rectFromBounds(left: number, top: number, width: number, height: number): ManualDragRect {
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+  };
+}
+
+function manualDropTargetFromDraggedRect(draggedRect: ManualDragRect, clientX: number, clientY: number, activeFlightId: string, activePushId: string) {
   const overlapTarget = bestManualDropTargetFromRect(draggedRect, activePushId);
   return overlapTarget ?? manualDropTargetFromPoint(clientX, clientY, activeFlightId, activePushId);
 }
 
-function bestManualDropTargetFromRect(draggedRect: DOMRect, activePushId: string) {
+function bestManualDropTargetFromRect(draggedRect: ManualDragRect, activePushId: string) {
   let bestTarget: { pushId: string; sequence: number; overlapArea: number } | null = null;
   for (const pushElement of document.querySelectorAll<HTMLElement>("[data-manual-push-id]")) {
     if (pushElement.dataset.manualPushId === activePushId) continue;
