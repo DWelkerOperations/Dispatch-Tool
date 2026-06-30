@@ -1,13 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { PasswordGate } from "./components/access/PasswordGate";
+import { PublicPrototypeNotice } from "./components/access/PublicPrototypeNotice";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <PasswordGate>
+    <PublicPrototypeNotice>
       <App />
-    </PasswordGate>
+    </PublicPrototypeNotice>
   </React.StrictMode>,
 );

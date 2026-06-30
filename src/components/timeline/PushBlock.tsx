@@ -1,8 +1,10 @@
-import type { Driver, Push, RiskSeverity } from "../../types/dispatch";
-import { isInternationalDestination } from "../../utils/destinations";
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
+import type { Driver, Push, RiskSeverity, ServiceEvent } from "../../types/dispatch";
 import { resourceIds } from "../../utils/resources";
 import { useTimelineScale } from "./TimelineScaleContext";
-import { minutesFromStart, pixelsPerMinute, timeToMinutes } from "./timelineUtils";
+import { minutesFromStart, pixelsPerMinute, serviceLabels, serviceStyle, timeToMinutes } from "./timelineUtils";
 
 const kitchenUnloadMinutes = 15;
 
@@ -82,46 +84,84 @@ export function PushBlock({ push, driver, shiftLabel }: PushBlockProps) {
             </div>
           </div>
         </div>
-        {push.serviceEvents.map((event) => {
-          const eventLeft = (timeToMinutes(event.serviceStart) - start) * minuteWidth;
-          const eventWidth = Math.max(26, event.serviceDurationMinutes * minuteWidth);
-          const international = isInternationalDestination(event.destinationAirport);
-          const eventTone = event.flightNumber.startsWith("INTL STRIP")
-            ? "bg-orange-500 text-white"
-            : international ? "bg-green-500 text-white" : "bg-blue-500 text-white";
-          const eventRiskTone = eventRiskRing[event.riskSeverity];
-          return (
-            <div
-              key={event.flightId}
-              className={`group/event absolute top-1 z-40 flex h-5 items-center justify-center rounded-md px-1 text-[10px] font-semibold hover:z-[950] ${eventTone} ${eventRiskTone}`}
-              style={{ left: eventLeft, width: eventWidth }}
-            >
-              <span className="truncate">{event.flightNumber} {event.gate}</span>
-              <div className="pointer-events-none absolute left-0 top-7 z-[999] hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs font-normal text-slate-600 shadow-xl group-hover/event:block">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-ink">{event.flightNumber}</div>
-                    <div className="mt-0.5 text-slate-500">Gate {event.gate} · {event.aircraftType}</div>
-                  </div>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">{event.flightNumber.startsWith("INTL STRIP") ? "INTL STRIP" : international ? "International" : "Domestic"}</span>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
-                  <span>Destination</span><strong className="text-right text-slate-800">{event.destinationAirport ?? "Domestic"}</strong>
-                  <span>Aircraft arrival</span><strong className="text-right text-slate-800">{event.aircraftArrivalTime}</strong>
-                  <span>Departure</span><strong className="text-right text-slate-800">{event.departureTime}</strong>
-                  <span>Service</span><strong className="text-right text-slate-800">{event.serviceStart}-{event.serviceEnd}</strong>
-                  <span>Duration</span><strong className="text-right text-slate-800">{event.serviceDurationMinutes} min</strong>
-                  <span>Timing</span><strong className="text-right text-slate-800">{event.riskStatus.split("-").join(" ")}</strong>
-                  <span>Risk level</span><strong className="text-right text-slate-800">{riskLabel[event.riskSeverity]}</strong>
-                  <span>Push</span><strong className="text-right text-slate-800">{push.id}</strong>
-                  <span>Driver shift</span><strong className="text-right text-slate-800">{shiftLabel ?? (driver ? `${driver.displayShiftStart ?? driver.shiftStart}-${driver.displayShiftEnd ?? driver.shiftEnd}` : "Open")}</strong>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {push.serviceEvents.map((event) => (
+          <PushServiceTask
+            key={event.flightId}
+            driver={driver}
+            event={event}
+            minuteWidth={minuteWidth}
+            push={push}
+            pushStartMinutes={start}
+            shiftLabel={shiftLabel}
+          />
+        ))}
       </div>
     </>
+  );
+}
+
+function PushServiceTask({
+  driver,
+  event,
+  minuteWidth,
+  push,
+  pushStartMinutes,
+  shiftLabel,
+}: {
+  driver?: Driver;
+  event: ServiceEvent;
+  minuteWidth: number;
+  push: Push;
+  pushStartMinutes: number;
+  shiftLabel?: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `push-task:${push.id}:${event.flightId}`,
+    data: { kind: "push-service-task", flightId: event.flightId, pushId: push.id },
+  });
+  const eventLeft = (timeToMinutes(event.serviceStart) - pushStartMinutes) * minuteWidth;
+  const eventWidth = Math.max(30, event.serviceDurationMinutes * minuteWidth);
+  const eventRiskTone = eventRiskRing[event.riskSeverity];
+
+  return (
+    <button
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      type="button"
+      data-push-task-flight-id={event.flightId}
+      data-push-task-service-type={event.serviceType}
+      className={`group/event absolute top-1 z-40 flex h-5 cursor-grab items-center justify-center gap-1 rounded-md border px-1 text-[10px] font-semibold shadow-sm transition active:cursor-grabbing hover:z-[950] ${serviceStyle(event.serviceType)} ${eventRiskTone} ${isDragging ? "z-[1000] opacity-75 shadow-lg" : ""}`}
+      style={{
+        left: eventLeft,
+        width: eventWidth,
+        transform: CSS.Translate.toString(transform),
+      }}
+    >
+      <GripVertical size={10} className="shrink-0 opacity-60" />
+      <span className="truncate">{event.flightNumber} {event.gate}</span>
+      <div className="pointer-events-none absolute left-0 top-7 z-[999] hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left text-xs font-normal text-slate-600 shadow-xl group-hover/event:block">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-semibold text-ink">{event.flightNumber}</div>
+            <div className="mt-0.5 text-slate-500">Gate {event.gate} · {event.aircraftType}</div>
+          </div>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">{serviceLabels[event.serviceType]}</span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
+          <span>Destination</span><strong className="text-right text-slate-800">{event.destinationAirport ?? "Domestic"}</strong>
+          <span>Aircraft arrival</span><strong className="text-right text-slate-800">{event.aircraftArrivalTime}</strong>
+          <span>Departure</span><strong className="text-right text-slate-800">{event.departureTime}</strong>
+          <span>Task type</span><strong className="text-right text-slate-800">{serviceLabels[event.serviceType]}</strong>
+          <span>Service</span><strong className="text-right text-slate-800">{event.serviceStart}-{event.serviceEnd}</strong>
+          <span>Duration</span><strong className="text-right text-slate-800">{event.serviceDurationMinutes} min</strong>
+          <span>Timing</span><strong className="text-right text-slate-800">{event.riskStatus.split("-").join(" ")}</strong>
+          <span>Risk level</span><strong className="text-right text-slate-800">{riskLabel[event.riskSeverity]}</strong>
+          <span>Push</span><strong className="text-right text-slate-800">{push.id}</strong>
+          <span>Driver shift</span><strong className="text-right text-slate-800">{shiftLabel ?? (driver ? `${driver.displayShiftStart ?? driver.shiftStart}-${driver.displayShiftEnd ?? driver.shiftEnd}` : "Open")}</strong>
+        </div>
+      </div>
+    </button>
   );
 }
 

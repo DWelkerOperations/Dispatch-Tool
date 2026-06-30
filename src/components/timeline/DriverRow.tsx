@@ -6,7 +6,9 @@ import { minutesToTime, plannedShiftForDriver } from "./shiftPlanning";
 import { useTimelineScale } from "./TimelineScaleContext";
 import { minutesFromStart, pixelsPerMinute, rowHeight, timeToMinutes, timelineEnd, timelineStart, timelineWidth } from "./timelineUtils";
 
-export function DriverRow({ driver, flights, pushes = [] }: { driver: Driver; flights: FlightAssignment[]; pushes?: Push[] }) {
+export type LunchWindowHours = { startHour: number; endHour: number };
+
+export function DriverRow({ driver, flights, pushes = [], lunchWindowHours }: { driver: Driver; flights: FlightAssignment[]; pushes?: Push[]; lunchWindowHours?: LunchWindowHours }) {
   const scale = useTimelineScale();
   const minuteWidth = pixelsPerMinute * scale;
   const { setNodeRef, isOver } = useDroppable({ id: driver.id });
@@ -16,7 +18,7 @@ export function DriverRow({ driver, flights, pushes = [] }: { driver: Driver; fl
   const overflowStart = shiftEnd;
   const overflowEnd = Math.min(timelineWidth(scale), (plannedShift.activeEndMinutes - timeToMinutes(timelineStart)) * minuteWidth);
   const rowMinutes = timeToMinutes(timelineEnd) - timeToMinutes(timelineStart);
-  const lunch = scheduledLunch(pushes, plannedShift);
+  const lunch = scheduledLunch(pushes, plannedShift, lunchWindowHours);
 
   return (
     <div
@@ -67,10 +69,12 @@ function LunchBlock({ lunch, minuteWidth }: { lunch: LunchWindow; minuteWidth: n
   );
 }
 
-function scheduledLunch(pushes: Push[], plannedShift: ReturnType<typeof plannedShiftForDriver>): LunchWindow | null {
+function scheduledLunch(pushes: Push[], plannedShift: ReturnType<typeof plannedShiftForDriver>, lunchWindowHours?: LunchWindowHours): LunchWindow | null {
   const lunchMinutes = 30;
   const sortedPushes = [...pushes].sort((a, b) => timeToMinutes(a.kitchenDepartureTime) - timeToMinutes(b.kitchenDepartureTime));
-  const lunchStart = lunchInsideShift(sortedPushes, plannedShift.startMinutes, plannedShift.endMinutes, lunchMinutes);
+  const windowStart = lunchWindowHours ? plannedShift.startMinutes + lunchWindowHours.startHour * 60 : plannedShift.startMinutes;
+  const windowEnd = lunchWindowHours ? plannedShift.startMinutes + lunchWindowHours.endHour * 60 : plannedShift.endMinutes;
+  const lunchStart = lunchInsideShift(sortedPushes, Math.max(plannedShift.startMinutes, windowStart), Math.min(plannedShift.endMinutes, windowEnd), lunchMinutes);
   if (lunchStart === null) return null;
 
   return {

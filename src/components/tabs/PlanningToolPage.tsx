@@ -6,6 +6,7 @@ import { mockTrucks } from "../../data/mockResources";
 import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, rejectUnassignedPushes, timeToMinutes } from "../../engine/scheduler";
 import { categoryForAircraft } from "../../import/aircraftMap";
 import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
+import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { resourceIds } from "../../utils/resources";
 import { DispatcherTimeline } from "../timeline/DispatcherTimeline";
 import { OperationToggle } from "../ui/OperationToggle";
@@ -31,6 +32,7 @@ type PlanningToolPageProps = {
   disallowCriticalPairings?: boolean;
   enforcePairingQuality?: boolean;
   preventUrgentPairings?: boolean;
+  keepExceptionPushes?: boolean;
   showPairingQuality?: boolean;
   showIterationControls?: boolean;
   showRiskDefinitions?: boolean;
@@ -38,17 +40,26 @@ type PlanningToolPageProps = {
   showTimelineDriverRadio?: boolean;
   exportButtonLabel?: string;
   maxAllowedStartTimes?: number;
+  startTimeMode?: StartTimeMode;
+  fixedStartTimes?: string[];
+  fixedStartResources?: FixedStartResource[];
   onDateChange: (date: string) => void;
+  onFlightTaskTypeChange?: (change: FlightTaskTypeChange) => void;
   onOperationTypeChange: (operationType: OperationView) => void;
   onResultChange: (result: ScheduleResult | null) => void;
   onMaxAllowedStartTimesChange?: (value: number) => void;
+  onStartTimeModeChange?: (mode: StartTimeMode) => void;
   onExport?: (payload: PlanningExportPayload) => void;
 };
+
+type StartTimeMode = "dynamic" | "fixed" | "fixed-resource";
+export type FixedStartResource = { startTime: string; resources: number };
 
 type PlanningExportPayload = {
   result: ScheduleResult;
   startWaves: StartWave[];
   flights: FlightAssignment[];
+  drivers: Driver[];
   selectedDate: string;
   operationType: OperationView;
 };
@@ -72,6 +83,7 @@ export function PlanningToolPage({
   disallowCriticalPairings = false,
   enforcePairingQuality = false,
   preventUrgentPairings = false,
+  keepExceptionPushes = false,
   showPairingQuality = false,
   showIterationControls = false,
   showRiskDefinitions = false,
@@ -79,10 +91,15 @@ export function PlanningToolPage({
   showTimelineDriverRadio = true,
   exportButtonLabel = "Export",
   maxAllowedStartTimes = defaultMaxShiftBidStartTimes,
+  startTimeMode = "dynamic",
+  fixedStartTimes = [],
+  fixedStartResources = [],
   onDateChange,
+  onFlightTaskTypeChange,
   onOperationTypeChange,
   onResultChange,
   onMaxAllowedStartTimesChange,
+  onStartTimeModeChange,
   onExport,
 }: PlanningToolPageProps) {
   const [iterationSettings, setIterationSettings] = useState({
@@ -91,16 +108,33 @@ export function PlanningToolPage({
     targetThreeFlightPairingPercent: standardThreeFlightPairingTargetPercent,
     maxFlightsPerPush: 3,
   });
-  const runRules = showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules;
+  const runRules = useMemo(
+    () => showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules,
+    [iterationSettings.maxFlightsPerPush, rules, showIterationControls],
+  );
   const urgentPairingLimit = showIterationControls && iterationSettings.allowUrgentPairings ? iterationSettings.urgentPairingLimitPercent : strictUrgentPairingLimitPercent;
   const shouldEnforceUrgentPairingLimit = enforcePairingQuality || preventUrgentPairings;
   const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : standardThreeFlightPairingTargetPercent;
-  const planningResources = useMemo(() => createPlanningResources(flights, runRules, defaultShiftStartIncrementMinutes), [flights, runRules]);
+  const isFixedStartTimeMode = startTimeMode === "fixed";
+  const isFixedResourceMode = startTimeMode === "fixed-resource";
+  const lunchWindowHours = lunchWindowHoursForFlights(flights, runRules);
+  const planningResources = useMemo(
+    () => isFixedResourceMode && fixedStartResources.length > 0
+      ? createFixedResourcePlanningResources(fixedStartResources, runRules)
+      : isFixedStartTimeMode && fixedStartTimes.length > 0
+      ? createFixedStartPlanningResources(fixedStartTimes, runRules)
+      : createPlanningResources(flights, runRules, defaultShiftStartIncrementMinutes),
+    [fixedStartResources, fixedStartTimes, flights, isFixedResourceMode, isFixedStartTimeMode, runRules],
+  );
   const visibleResult = useMemo(() => result ? filterScheduleResultByOperation(result, operationType) : null, [operationType, result]);
 
   function handleCreatePairings(options?: { maxStartTimes?: number; shiftStartIncrementMinutes?: number }) {
     const shiftStartIncrementMinutes = options?.shiftStartIncrementMinutes ?? defaultShiftStartIncrementMinutes;
-    const activePlanningResources = shiftStartIncrementMinutes === defaultShiftStartIncrementMinutes
+    const activePlanningResources = isFixedResourceMode && fixedStartResources.length > 0
+      ? createFixedResourcePlanningResources(fixedStartResources, runRules)
+      : isFixedStartTimeMode && fixedStartTimes.length > 0
+      ? createFixedStartPlanningResources(fixedStartTimes, runRules)
+      : shiftStartIncrementMinutes === defaultShiftStartIncrementMinutes
       ? planningResources
       : createPlanningResources(flights, runRules, shiftStartIncrementMinutes);
     const maxStartTimes = options?.maxStartTimes ?? maxAllowedStartTimes;
@@ -114,13 +148,23 @@ export function PlanningToolPage({
       const urgentSafeResult = shouldEnforceUrgentPairingLimit && enforceQuality
         ? enforceUrgentPairingLimit(criticalSafeResult, urgentPairingLimit)
         : criticalSafeResult;
-      return rejectUnassignedPushes(urgentSafeResult);
+      return keepExceptionPushes ? urgentSafeResult : rejectUnassignedPushes(urgentSafeResult);
     };
 
     const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks, false);
-    const selectedStartTimes = selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
-    const targetResources = createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules);
+    const selectedStartTimes = (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
+      ? fixedStartTimes
+      : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
+    const targetResources = isFixedResourceMode && fixedStartResources.length > 0
+      ? createFixedResourcePlanningResources(fixedStartResources, rules)
+      : createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules, { preserveExactStarts: isFixedStartTimeMode });
     onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
+  }
+
+  function handleTimelineTaskTypeChange(change: FlightTaskTypeChange) {
+    if (!result) return;
+    onResultChange(applyFlightTaskTypeChange(result, change));
+    onFlightTaskTypeChange?.(change);
   }
 
   const timelineDrivers = visibleResult ? driversUsedByPlan(planningResources.drivers, visibleResult.pushes) : planningResources.drivers.slice(0, 12);
@@ -137,15 +181,22 @@ export function PlanningToolPage({
           <div className="flex flex-wrap items-center gap-3">
             <DateFilter value={selectedDate} onChange={onDateChange} />
             <OperationToggle value={operationType} onChange={onOperationTypeChange} />
-            {onMaxAllowedStartTimesChange && (
-              <StartTimeLimitSelect value={maxAllowedStartTimes} onChange={onMaxAllowedStartTimesChange} />
+            {(onMaxAllowedStartTimesChange || onStartTimeModeChange) && (
+              <StartTimeControls
+                fixedStartTimes={fixedStartTimes}
+                fixedStartResources={fixedStartResources}
+                maxAllowedStartTimes={maxAllowedStartTimes}
+                mode={startTimeMode}
+                onMaxAllowedStartTimesChange={onMaxAllowedStartTimesChange}
+                onModeChange={onStartTimeModeChange}
+              />
             )}
             <button onClick={() => handleCreatePairings()} className="rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
               {createButtonLabel}
             </button>
             {onExport && visibleResult && (
               <button
-                onClick={() => onExport({ result: visibleResult, startWaves, flights, selectedDate, operationType })}
+                onClick={() => onExport({ result: visibleResult, startWaves, flights, drivers: timelineDrivers, selectedDate, operationType })}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-slate-50"
               >
                 <Download size={16} aria-hidden="true" />
@@ -175,7 +226,7 @@ export function PlanningToolPage({
         </Panel>
       ) : (
         <>
-          <ScheduleSummaryCards result={visibleResult} />
+          <ScheduleSummaryCards result={visibleResult} drivers={timelineDrivers} />
           {resourcePlanPosition === "above-timeline" && <PlanningResourcePanel result={visibleResult} startWaves={startWaves} title={resourcePlanTitle} description={resourcePlanDescription} />}
           {showPairingQuality && (
             <PairingQualityPanel
@@ -192,7 +243,9 @@ export function PlanningToolPage({
             drivers={timelineDrivers}
             pushes={visibleResult.pushes}
             driverLabelMode={timelineDriverLabelMode}
+            lunchWindowHours={lunchWindowHours}
             showDriverRadio={showTimelineDriverRadio}
+            onTaskTypeChange={onFlightTaskTypeChange ? handleTimelineTaskTypeChange : undefined}
           />
           {resourcePlanPosition === "below-timeline" && <PlanningResourcePanel result={visibleResult} startWaves={startWaves} title={resourcePlanTitle} description={resourcePlanDescription} />}
           <Panel className="p-5">
@@ -279,14 +332,109 @@ function IterationControls({
   );
 }
 
-function StartTimeLimitSelect({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+function StartTimeControls({
+  fixedStartTimes,
+  fixedStartResources,
+  maxAllowedStartTimes,
+  mode,
+  onMaxAllowedStartTimesChange,
+  onModeChange,
+}: {
+  fixedStartTimes: string[];
+  fixedStartResources: FixedStartResource[];
+  maxAllowedStartTimes: number;
+  mode: StartTimeMode;
+  onMaxAllowedStartTimesChange?: (value: number) => void;
+  onModeChange?: (mode: StartTimeMode) => void;
+}) {
+  if (!onModeChange) {
+    return onMaxAllowedStartTimesChange
+      ? <StartTimeLimitSelect value={maxAllowedStartTimes} onChange={onMaxAllowedStartTimesChange} />
+      : null;
+  }
+
+  const isFixed = mode === "fixed";
+  const isFixedResource = mode === "fixed-resource";
+  const disablesStartWaveLimit = isFixed || isFixedResource;
+
   return (
-    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-ink shadow-sm">
-      <span className="text-xs font-medium text-slate-500">Start waves</span>
+    <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg bg-slate-100 p-0.5">
+          <button
+            type="button"
+            onClick={() => onModeChange("dynamic")}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${!isFixed ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"}`}
+          >
+            Dynamic starts
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("fixed")}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${isFixed ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"}`}
+          >
+            Fixed starts
+          </button>
+          {fixedStartResources.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onModeChange("fixed-resource")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${isFixedResource ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"}`}
+            >
+              Goal staffing
+            </button>
+          )}
+        </div>
+        {onMaxAllowedStartTimesChange && (
+          <StartTimeLimitSelect
+            value={maxAllowedStartTimes}
+            disabled={disablesStartWaveLimit}
+            helperText={isFixedResource ? "Using Goal row" : isFixed ? "Not used in fixed mode" : undefined}
+            onChange={onMaxAllowedStartTimesChange}
+          />
+        )}
+      </div>
+      {isFixed && fixedStartTimes.length > 0 && (
+        <div className="mt-2 grid grid-cols-5 gap-1.5">
+          {fixedStartTimes.map((startTime) => (
+            <span key={startTime} className="rounded-md bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold text-slate-700">
+              {startTime}
+            </span>
+          ))}
+        </div>
+      )}
+      {isFixedResource && fixedStartResources.length > 0 && (
+        <div className="mt-2 grid grid-cols-5 gap-1.5">
+          {fixedStartResources.map((item) => (
+            <span key={item.startTime} className="rounded-md bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold text-slate-700">
+              {item.startTime} · {item.resources}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StartTimeLimitSelect({
+  value,
+  disabled = false,
+  helperText,
+  onChange,
+}: {
+  value: number;
+  disabled?: boolean;
+  helperText?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className={`flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-ink ${disabled ? "bg-slate-50 opacity-60" : "bg-white"}`}>
+      <span className="text-xs font-medium text-slate-500">{helperText ?? "Start waves"}</span>
       <select
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="bg-transparent text-sm font-semibold text-ink outline-none"
+        className="bg-transparent text-sm font-semibold text-ink outline-none disabled:text-slate-500"
         aria-label="Maximum start waves"
       >
         {Array.from({ length: maxShiftBidStartTimes - minShiftBidStartTimes + 1 }, (_, index) => minShiftBidStartTimes + index).map((option) => (
@@ -360,7 +508,7 @@ function PairingQualityPanel({
     ? Math.round((threeFlightPairingCount / result.summary.totalPushes) * 100)
     : 0;
   const threeFlightTargetMet = targetThreeFlightPairingPercent === 0 || threeFlightPairingPercent >= targetThreeFlightPairingPercent;
-  const operationallyClean = urgentPercent <= urgentPairingLimitPercent && coverage.missingFlights.length === 0;
+  const operationallyClean = urgentPercent <= urgentPairingLimitPercent && coverage.exceptionFlights.length === 0 && coverage.missingFlights.length === 0;
   const panelTone = operationallyClean
     ? threeFlightTargetMet
       ? "border-emerald-200 bg-emerald-50/60"
@@ -369,6 +517,9 @@ function PairingQualityPanel({
   const urgentTone = urgentPercent <= urgentPairingLimitPercent
     ? "border-emerald-200 bg-white text-emerald-700"
     : "border-red-200 bg-white text-red-700";
+  const publishablePercent = coverage.expectedFlights > 0
+    ? Math.round((coverage.scheduledFlights / coverage.expectedFlights) * 100)
+    : 100;
 
   return (
     <Panel className={`p-4 ${panelTone}`}>
@@ -378,15 +529,24 @@ function PairingQualityPanel({
           <p className="mt-1 text-sm text-slate-600">Compare coverage, urgent timing, and 3-flight pairing yield for this iteration.</p>
         </div>
         <div className="flex items-center gap-2">
-          <MiniMetric label="Flight Coverage" value={`${coverage.coveredFlights}/${coverage.expectedFlights}`} />
+          <MiniMetric label="Scheduled Cleanly" value={`${coverage.scheduledFlights}/${coverage.expectedFlights}`} />
+          <MiniMetric label="Exception Flights" value={coverage.exceptionFlights.length} />
           <MiniMetric label="Missing Flights" value={coverage.missingFlights.length} />
           <MiniMetric label="Urgent Pairings" value={result.summary.urgentPushes} />
           <MiniMetric label="3-Flight Pairings" value={`${threeFlightPairingPercent}%`} />
+          <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${coverage.exceptionFlights.length === 0 && coverage.missingFlights.length === 0 ? "border-emerald-200 bg-white text-emerald-700" : "border-red-200 bg-white text-red-700"}`}>
+            {publishablePercent}% clean
+          </div>
           <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${urgentTone}`}>
             {urgentPercent}% urgent
           </div>
         </div>
       </div>
+      {coverage.exceptionFlights.length > 0 && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700">
+          Not fully publishable: {coverage.exceptionFlights.length} flight{coverage.exceptionFlights.length === 1 ? "" : "s"} are in exceptions, so the driver count reflects only the work the model could staff cleanly.
+        </div>
+      )}
       {coverage.missingFlights.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700">
           Missing from plan: {coverage.missingFlights.slice(0, 16).map((flight) => flight.flightNumber).join(", ")}
@@ -399,27 +559,39 @@ function PairingQualityPanel({
 
 function scheduleCoverageForView(result: ScheduleResult, flights: FlightAssignment[], operationType: OperationView) {
   const expectedFlights = flights.filter((flight) => operationType === "all" || operationTypeForFlightAssignment(flight) === operationType);
-  const coveredFlightIds = new Set<string>();
+  const plannedFlightIds = new Set<string>();
 
   for (const push of result.pushes) {
     for (const flight of push.flights) {
-      if (flight.serviceType !== "intl-strip" || !flight.id.endsWith("-intl-strip")) coveredFlightIds.add(baseFlightId(flight.id));
+      if (flight.serviceType !== "intl-strip" || !flight.id.endsWith("-intl-strip")) plannedFlightIds.add(baseFlightId(flight.id));
     }
   }
 
+  const exceptionFlightIds = new Set<string>();
   for (const exception of result.exceptions) {
-    if (exception.flightId && (exception.serviceType !== "intl-strip" || !exception.flightId.endsWith("-intl-strip"))) coveredFlightIds.add(baseFlightId(exception.flightId));
+    if (exception.flightId && (exception.serviceType !== "intl-strip" || !exception.flightId.endsWith("-intl-strip"))) exceptionFlightIds.add(baseFlightId(exception.flightId));
   }
 
   return {
     expectedFlights: expectedFlights.length,
-    coveredFlights: expectedFlights.filter((flight) => coveredFlightIds.has(flight.id)).length,
-    missingFlights: expectedFlights.filter((flight) => !coveredFlightIds.has(flight.id)),
+    scheduledFlights: expectedFlights.filter((flight) => plannedFlightIds.has(flight.id) && !exceptionFlightIds.has(flight.id)).length,
+    exceptionFlights: expectedFlights.filter((flight) => exceptionFlightIds.has(flight.id)),
+    missingFlights: expectedFlights.filter((flight) => !plannedFlightIds.has(flight.id) && !exceptionFlightIds.has(flight.id)),
   };
 }
 
 function operationTypeForFlightAssignment(flight: FlightAssignment) {
   return categoryForAircraft(flight.aircraft) === "regional" ? "express" : "mainline";
+}
+
+function lunchWindowHoursForFlights(flights: FlightAssignment[], rules: PlanningRules) {
+  const sites = new Set(flights.map((flight) => flight.originAirport?.toUpperCase()).filter(Boolean));
+  if (sites.size !== 1) return undefined;
+  const [siteCode] = [...sites];
+  if (!siteCode) return undefined;
+  const siteRules = rules.siteOverrides?.[siteCode];
+  if (siteRules?.lunchWindowStartHour === undefined || siteRules.lunchWindowEndHour === undefined) return undefined;
+  return { startHour: siteRules.lunchWindowStartHour, endHour: siteRules.lunchWindowEndHour };
 }
 
 function baseFlightId(flightId: string) {
@@ -582,10 +754,67 @@ function createPlanningResources(flights: FlightAssignment[], rules: PlanningRul
   return createTargetResources(candidateShiftStartsForFlights(flights, rules, shiftStartIncrementMinutes), targetResourcesPerStart, createTargetTruckPool(), rules);
 }
 
-function createTargetResources(shiftStarts: string[], resourcesPerStart: number, trucks: ReturnType<typeof createTargetTruckPool> | typeof mockTrucks, rules: PlanningRules) {
+function createFixedStartPlanningResources(shiftStarts: string[], rules: PlanningRules) {
+  return createTargetResources(shiftStarts, targetResourcesPerStart, createTargetTruckPool(), rules, { preserveExactStarts: true });
+}
+
+function createFixedResourcePlanningResources(fixedStartResources: FixedStartResource[], rules: PlanningRules) {
   const shiftSpanMinutes = rules.standardShiftHours * 60 + rules.lunchMinutes;
+  const sortedResources = [...fixedStartResources]
+    .map((item) => ({ ...item, resources: Math.max(0, Math.floor(item.resources)) }))
+    .filter((item) => item.resources > 0)
+    .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+  let resourceNumber = 0;
   return {
-    drivers: normalizedShiftStarts(shiftStarts).flatMap((shiftStart, shiftIndex) => Array.from({ length: resourcesPerStart }, (_, index): Driver => {
+    drivers: sortedResources.flatMap((item) => Array.from({ length: item.resources }, (_, index): Driver => {
+      resourceNumber += 1;
+      const shiftStart = item.startTime;
+      const displayShiftStart = displayStartForShiftStart(shiftStart);
+      const shiftEnd = actualEndForShiftStart(shiftStart, addMinutes(shiftStart, shiftSpanMinutes));
+      const displayShiftEnd = displayEndForShiftStart(shiftStart, shiftEnd);
+      const idSuffix = `${idPrefixForShiftStart(shiftStart)}-${index + 1}`;
+      return {
+        id: `d-goal-${idSuffix}`,
+        name: `Goal Driver ${String(resourceNumber).padStart(3, "0")}`,
+        truck: String(5100 + resourceNumber).padStart(4, "0"),
+        radio: String(500 + resourceNumber).padStart(3, "0"),
+        shiftStart,
+        shiftEnd,
+        displayShiftStart,
+        displayShiftEnd,
+      };
+    })),
+    helpers: sortedResources.flatMap((item) => Array.from({ length: item.resources }, (_, index): Helper => {
+      const shiftStart = item.startTime;
+      const displayShiftStart = displayStartForShiftStart(shiftStart);
+      const shiftEnd = actualEndForShiftStart(shiftStart, addMinutes(shiftStart, shiftSpanMinutes));
+      const displayShiftEnd = displayEndForShiftStart(shiftStart, shiftEnd);
+      const idSuffix = `${idPrefixForShiftStart(shiftStart)}-${index + 1}`;
+      return {
+        id: `h-goal-${idSuffix}`,
+        name: `Goal Helper ${shiftStart} ${String(index + 1).padStart(2, "0")}`,
+        shiftStart,
+        shiftEnd,
+        displayShiftStart,
+        displayShiftEnd,
+      };
+    })),
+    trucks: createTargetTruckPool(),
+  };
+}
+
+function createTargetResources(
+  shiftStarts: string[],
+  resourcesPerStart: number,
+  trucks: ReturnType<typeof createTargetTruckPool> | typeof mockTrucks,
+  rules: PlanningRules,
+  options: { preserveExactStarts?: boolean } = {},
+) {
+  const shiftSpanMinutes = rules.standardShiftHours * 60 + rules.lunchMinutes;
+  const normalizedStarts = options.preserveExactStarts ? exactShiftStarts(shiftStarts) : normalizedShiftStarts(shiftStarts);
+  return {
+    drivers: normalizedStarts.flatMap((shiftStart, shiftIndex) => Array.from({ length: resourcesPerStart }, (_, index): Driver => {
       const number = shiftIndex * resourcesPerStart + index + 1;
       const displayShiftStart = displayStartForShiftStart(shiftStart);
       const shiftEnd = actualEndForShiftStart(shiftStart, addMinutes(shiftStart, shiftSpanMinutes));
@@ -602,7 +831,7 @@ function createTargetResources(shiftStarts: string[], resourcesPerStart: number,
         displayShiftEnd,
       };
     })),
-    helpers: normalizedShiftStarts(shiftStarts).flatMap((shiftStart, shiftIndex) => Array.from({ length: resourcesPerStart }, (_, index): Helper => {
+    helpers: normalizedStarts.flatMap((shiftStart, shiftIndex) => Array.from({ length: resourcesPerStart }, (_, index): Helper => {
       const number = shiftIndex * resourcesPerStart + index + 1;
       const displayShiftStart = displayStartForShiftStart(shiftStart);
       const shiftEnd = actualEndForShiftStart(shiftStart, addMinutes(shiftStart, shiftSpanMinutes));
@@ -679,6 +908,11 @@ const overnightDisplayStart = "18:30";
 
 function normalizedShiftStarts(shiftStarts: string[]) {
   return [...new Set(shiftStarts.map(normalizedShiftStart))]
+    .sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+}
+
+function exactShiftStarts(shiftStarts: string[]) {
+  return [...new Set(shiftStarts)]
     .sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
 }
 

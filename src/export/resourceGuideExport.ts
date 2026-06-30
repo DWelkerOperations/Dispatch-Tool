@@ -1,6 +1,7 @@
 import { timeToMinutes } from "../engine/scheduler";
 import { categoryForAircraft } from "../import/aircraftMap";
-import type { FlightAssignment, OperationView, ScheduleException, ScheduleResult } from "../types/dispatch";
+import type { Driver, FlightAssignment, OperationView, Push, ScheduleException, ScheduleResult } from "../types/dispatch";
+import { resourceIds } from "../utils/resources";
 import type { WorkBook } from "xlsx";
 
 type StartWaveExport = {
@@ -12,6 +13,7 @@ type ResourceGuideExportPayload = {
   result: ScheduleResult;
   startWaves: StartWaveExport[];
   flights: FlightAssignment[];
+  drivers: Driver[];
   selectedDate: string;
   operationType: OperationView;
   sourceFileName: string;
@@ -21,6 +23,7 @@ export async function exportResourceGuideWorkbook({
   result,
   startWaves,
   flights,
+  drivers,
   selectedDate,
   operationType,
   sourceFileName,
@@ -54,6 +57,7 @@ export async function exportResourceGuideWorkbook({
   ], [28, 24]);
 
   appendStartWaveChartSheet(XLSX, workbook, startWaves, viewLabel);
+  appendTimelineVisualSheet(XLSX, workbook, result, drivers, viewLabel, selectedDate);
 
   appendSheet(XLSX, workbook, "Resource Guidance", [
     ["Start Time", "Driver Starts"],
@@ -110,6 +114,9 @@ export async function exportResourceGuideWorkbook({
 }
 
 const kitchenUnloadMinutes = 15;
+const timelineStartMinutes = 0;
+const timelineEndMinutes = 27 * 60 + 30;
+const timelineBucketMinutes = 15;
 
 type XlsxModule = typeof import("xlsx");
 
@@ -136,6 +143,171 @@ function appendStartWaveChartSheet(XLSX: XlsxModule, workbook: WorkBook, startWa
   ];
 
   appendSheet(XLSX, workbook, "Start Wave Chart", rows, [16, 16, 52]);
+}
+
+function appendTimelineVisualSheet(XLSX: XlsxModule, workbook: WorkBook, result: ScheduleResult, drivers: Driver[], viewLabel: string, selectedDate: string) {
+  const timeColumns = timelineTimeColumns();
+  const rows: unknown[][] = [
+    [`Resource Timeline Visual - ${viewLabel}`],
+    ["Planning Date", selectedDate || ""],
+    ["Each row mirrors the detail timeline. Columns are 15-minute buckets; labels mark the dominant task in that bucket."],
+    [],
+    ["Legend", "SHIFT = scheduled shift", "LOAD = load/prep", "OUT = dispatch to first gate", "SVC = gate service", "RTRN = return/unload", "LUNCH = scheduled lunch", "OT = overtime"],
+    [],
+    ["Driver", "Shift", "Truck", "Pushes", ...timeColumns.map(displayTimelineTime)],
+  ];
+
+  const sortedDrivers = drivers.length > 0 ? drivers : driversFromPushes(result.pushes);
+  if (sortedDrivers.length === 0) {
+    rows.push(["No assigned resource rows for this run.", "", "", "", ...timeColumns.map(() => "")]);
+  } else {
+    for (const driver of sortedDrivers) {
+      const pushes = pushesForDriver(result.pushes, driver.id);
+      rows.push(driverTimelineRow(driver, pushes, timeColumns));
+    }
+  }
+
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  sheet["!cols"] = [
+    { wch: 24 },
+    { wch: 15 },
+    { wch: 10 },
+    { wch: 28 },
+    ...timeColumns.map(() => ({ wch: 5 })),
+  ];
+  sheet["!rows"] = rows.map((_, index) => ({ hpt: index >= 6 ? 26 : 18 }));
+  sheet["!autofilter"] = { ref: `A7:${XLSX.utils.encode_cell({ r: rows.length - 1, c: timeColumns.length + 3 })}` };
+  XLSX.utils.book_append_sheet(workbook, sheet, "Timeline Visual");
+}
+
+function driverTimelineRow(driver: Driver, pushes: Push[], timeColumns: number[]) {
+  const shiftStart = timeToMinutes(driver.shiftStart);
+  const shiftEnd = timeToMinutes(driver.shiftEnd);
+  const lunch = scheduledLunch(pushes, shiftStart, shiftEnd);
+  const cells = timeColumns.map((bucketStart) => {
+    const bucketEnd = bucketStart + timelineBucketMinutes;
+    const labels = new Set<string>();
+
+    if (bucketStart >= shiftStart && bucketStart < shiftEnd) labels.add("SHIFT");
+    if (lunch && rangesOverlap(bucketStart, bucketEnd, lunch.start, lunch.end)) labels.add("LUNCH");
+
+    for (const push of pushes) {
+      if (rangesOverlap(bucketStart, bucketEnd, timeToMinutes(push.loadStartTime), timeToMinutes(push.loadEndTime))) {
+        labels.add(labelForRangeStart(bucketStart, push.loadStartTime, `${push.id} LOAD`, "LOAD"));
+      }
+      if (rangesOverlap(bucketStart, bucketEnd, timeToMinutes(push.kitchenDepartureTime), timeToMinutes(push.arriveFirstGateTime))) {
+        labels.add(labelForRangeStart(bucketStart, push.kitchenDepartureTime, `${push.id} OUT`, "OUT"));
+      }
+      for (const event of push.serviceEvents) {
+        if (rangesOverlap(bucketStart, bucketEnd, timeToMinutes(event.serviceStart), timeToMinutes(event.serviceEnd))) {
+          labels.add(labelForRangeStart(bucketStart, event.serviceStart, `${event.flightNumber} SVC`, "SVC"));
+        }
+      }
+      if (rangesOverlap(bucketStart, bucketEnd, latestServiceEnd(push), timeToMinutes(push.returnTime) + kitchenUnloadMinutes)) {
+        labels.add(labelForRangeStart(bucketStart, push.returnTime, `${push.id} RTRN`, "RTRN"));
+      }
+    }
+
+    if (bucketStart >= shiftEnd && labels.size > 0) labels.add("OT");
+    return compactTimelineLabels(labels);
+  });
+
+  const shiftLabel = `${driver.displayShiftStart ?? driver.shiftStart}-${driver.displayShiftEnd ?? driver.shiftEnd}`;
+  return [
+    driver.name,
+    shiftLabel,
+    driver.truck || "",
+    pushes.map((push) => push.id).join(", "),
+    ...cells,
+  ];
+}
+
+function timelineTimeColumns() {
+  const columns: number[] = [];
+  for (let minutes = timelineStartMinutes; minutes <= timelineEndMinutes; minutes += timelineBucketMinutes) {
+    columns.push(minutes);
+  }
+  return columns;
+}
+
+function displayTimelineTime(minutes: number) {
+  const dayOffset = Math.floor(minutes / 1440);
+  const hour = Math.floor((minutes % 1440) / 60);
+  const minute = minutes % 60;
+  const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return dayOffset > 0 ? `${label}+${dayOffset}` : label;
+}
+
+function pushesForDriver(pushes: Push[], driverId: string) {
+  return pushes
+    .filter((push) => resourceIds(push.driverId).includes(driverId))
+    .sort((a, b) => timeToMinutes(a.kitchenDepartureTime) - timeToMinutes(b.kitchenDepartureTime));
+}
+
+function driversFromPushes(pushes: Push[]): Driver[] {
+  return [...new Set(pushes.flatMap((push) => resourceIds(push.driverId)))]
+    .sort()
+    .map((driverId) => ({
+      id: driverId,
+      name: driverId,
+      truck: "",
+      radio: "",
+      shiftStart: "00:00",
+      shiftEnd: "27:30",
+      displayShiftStart: "00:00",
+      displayShiftEnd: "03:30 +1",
+    }));
+}
+
+function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number) {
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+function labelForRangeStart(bucketStart: number, rangeStart: string, startLabel: string, continuationLabel: string) {
+  return Math.abs(bucketStart - timeToMinutes(rangeStart)) < timelineBucketMinutes ? startLabel : continuationLabel;
+}
+
+function latestServiceEnd(push: Push) {
+  return Math.max(...push.serviceEvents.map((event) => timeToMinutes(event.serviceEnd)));
+}
+
+function compactTimelineLabels(labels: Set<string>) {
+  if (labels.size === 0) return "";
+  const ordered = ["LUNCH", "OT", ...[...labels].filter((label) => !["SHIFT", "LUNCH", "OT"].includes(label)), "SHIFT"]
+    .filter((label) => labels.has(label));
+  return ordered.slice(0, 2).join(" / ");
+}
+
+function scheduledLunch(pushes: Push[], shiftStart: number, shiftEnd: number) {
+  const lunchMinutes = 30;
+  const sortedPushes = [...pushes].sort((a, b) => timeToMinutes(a.kitchenDepartureTime) - timeToMinutes(b.kitchenDepartureTime));
+  let bestGap: { start: number; end: number; idleMinutes: number } | null = null;
+  let availableStart = shiftStart;
+
+  for (const push of sortedPushes) {
+    const pushStart = timeToMinutes(push.loadStartTime);
+    const pushEnd = timeToMinutes(push.returnTime) + kitchenUnloadMinutes;
+    const gapStart = Math.max(availableStart, shiftStart);
+    const gapEnd = Math.min(pushStart, shiftEnd);
+    const idleMinutes = gapEnd - gapStart;
+
+    if (idleMinutes >= lunchMinutes && (!bestGap || idleMinutes < bestGap.idleMinutes)) {
+      bestGap = { start: gapStart, end: gapEnd, idleMinutes };
+    }
+
+    if (pushEnd >= availableStart) availableStart = pushEnd;
+  }
+
+  const finalGapStart = Math.max(availableStart, shiftStart);
+  const finalIdleMinutes = shiftEnd - finalGapStart;
+  if (finalIdleMinutes >= lunchMinutes && (!bestGap || finalIdleMinutes < bestGap.idleMinutes)) {
+    bestGap = { start: finalGapStart, end: shiftEnd, idleMinutes: finalIdleMinutes };
+  }
+
+  if (!bestGap) return null;
+
+  const start = Math.min(bestGap.start + Math.floor((bestGap.idleMinutes - lunchMinutes) / 2), bestGap.end - lunchMinutes);
+  return { start, end: start + lunchMinutes };
 }
 
 function exceptionRows(exceptions: ScheduleException[]) {

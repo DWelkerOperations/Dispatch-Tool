@@ -15,6 +15,8 @@ Use this checklist before committing a checkpoint when browser automation cannot
 - Import an invalid `.xlsx` schedule with no usable rows.
   - Expected: a red import error is shown.
   - Expected: the previous active schedule remains usable.
+- Import a file with the wrong extension, an empty workbook file, or a workbook larger than 8 MB.
+  - Expected: a red import error explains why the file was rejected before schedule data is loaded.
 
 ## Resource Planning
 

@@ -1,0 +1,6 @@
+auditConfig:
+  ignoreGhsas:
+    # Known xlsx@0.18.5 advisories tracked in README and the June 25 review.
+    # Keep the import guardrails in place until the parser is replaced.
+    - GHSA-4r6h-8v6p-xvw6
+    - GHSA-5pgg-2g8v-p4x9

@@ -128,6 +128,7 @@ export type ServiceEvent = {
   flightNumber: string;
   gate: string;
   aircraftType: string;
+  serviceType: ServiceType;
   destinationAirport?: string;
   departureTime: string;
   aircraftArrivalTime: string;
@@ -261,6 +262,8 @@ export type SitePlanningRules = {
   sharedResourcePool?: boolean;
   allowShiftStretch?: boolean;
   preserveLunchWindow?: boolean;
+  lunchWindowStartHour?: number;
+  lunchWindowEndHour?: number;
   preferredReuseWindowMinutes?: number;
   lateWavePenaltyPerMinute?: number;
   maxFlightsPerPush?: number;

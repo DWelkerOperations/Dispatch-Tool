@@ -13,6 +13,7 @@ import { planningRules as defaultPlanningRules } from "./data/planningRules";
 import { ordJuneTripmasterReferenceId, referenceSchedules, type ReferenceSchedule } from "./data/referenceSchedules";
 import { exportResourceGuideWorkbook } from "./export/resourceGuideExport";
 import type { AirportCode, AppTab, FlightAssignment, OperationView, PlanningRules, ScheduleResult } from "./types/dispatch";
+import type { FlightTaskTypeChange } from "./utils/taskTypeUpdates";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("resource-guide");
@@ -40,6 +41,7 @@ export default function App() {
   const [ordPlannerOperationType, setOrdPlannerOperationType] = useState<OperationView>("mainline");
   const [ordPlannerResult, setOrdPlannerResult] = useState<ScheduleResult | null>(null);
   const [ordPlannerMaxStartTimes, setOrdPlannerMaxStartTimes] = useState(12);
+  const [ordPlannerStartTimeMode, setOrdPlannerStartTimeMode] = useState<"dynamic" | "fixed" | "fixed-resource">("dynamic");
   const planningVisibleFlights = useMemo(
     () => planningFlights.filter((flight) => flightMatchesSelectedSchedule(flight, planningAirport, planningDate)),
     [planningAirport, planningDate, planningFlights],
@@ -186,8 +188,19 @@ export default function App() {
     setOrdPlannerResult(null);
   }
 
+  function handleOrdPlannerStartTimeModeChange(mode: "dynamic" | "fixed" | "fixed-resource") {
+    setOrdPlannerStartTimeMode(mode);
+    setOrdPlannerResult(null);
+  }
+
   function handleOperationTypeChange(operationType: OperationView) {
     setPlanningOperationType(operationType);
+  }
+
+  function handlePlanningFlightTaskTypeChange(change: FlightTaskTypeChange) {
+    setPlanningFlights((currentFlights) => currentFlights.map((flight) => (
+      flight.id === change.flightId ? { ...flight, serviceType: change.serviceType, edited: true } : flight
+    )));
   }
 
   function handleRulesChange(nextRules: PlanningRules) {
@@ -228,6 +241,7 @@ export default function App() {
           timelineDriverLabelMode="sequential"
           showTimelineDriverRadio={false}
           onDateChange={handleDateChange}
+          onFlightTaskTypeChange={handlePlanningFlightTaskTypeChange}
           onOperationTypeChange={handleOperationTypeChange}
           onResultChange={setPlanningResult}
         />
@@ -280,19 +294,20 @@ export default function App() {
           readyDescription={`${ordPlannerVisibleFlights.length} ORD flights are loaded for ${ordPlannerDate}. Import the UA turns report, pick the date, then create guidance to use planned inbound arrivals as the earliest catering-ready time.`}
           createButtonLabel="Create ORD Guidance"
           assumptionTitle="UA Turns Logic"
-          assumptionDescription={`This ORD plan reads outbound flight, destination, and departure time from the UA turns report, uses the aircraft shown on the turn, and treats the inbound arrival time as the earliest aircraft-ready constraint. Rows with a strip value are planned as protected strip work. It then chooses up to ${ordPlannerMaxStartTimes} hour or half-hour start waves for driver, helper, and truck guidance.`}
+          assumptionDescription={ordPlannerAssumptionDescription(ordPlannerStartTimeMode, ordPlannerMaxStartTimes)}
           resourcePlanPosition="above-timeline"
           resourcePlanTitle="ORD Resource Guidance"
-          resourcePlanDescription="Recommended ORD driver, helper, and truck needs by start wave."
-          disallowCriticalPairings
-          enforcePairingQuality
-          preventUrgentPairings
+          resourcePlanDescription={ordPlannerResourcePlanDescription(ordPlannerStartTimeMode)}
+          keepExceptionPushes
           showPairingQuality
           showRiskDefinitions
           timelineDriverLabelMode="sequential"
           showTimelineDriverRadio={false}
           exportButtonLabel="Export Excel"
+          fixedStartResources={ordGoalStartResources}
+          fixedStartTimes={ordFixedStartTimes}
           maxAllowedStartTimes={ordPlannerMaxStartTimes}
+          startTimeMode={ordPlannerStartTimeMode}
           onDateChange={handleOrdPlannerDateChange}
           onExport={(payload) => exportResourceGuideWorkbook({
             ...payload,
@@ -301,6 +316,7 @@ export default function App() {
           onMaxAllowedStartTimesChange={handleOrdPlannerMaxStartTimesChange}
           onOperationTypeChange={setOrdPlannerOperationType}
           onResultChange={setOrdPlannerResult}
+          onStartTimeModeChange={handleOrdPlannerStartTimeModeChange}
         />
       )}
       {activeTab === "dispatch" && (
@@ -321,6 +337,37 @@ export default function App() {
       {activeTab === "thumb-rules" && <ThumbRulesPage rules={activeRules} onRulesChange={handleRulesChange} />}
     </AppShell>
   );
+}
+
+const ordFixedStartTimes = ["02:30", "04:00", "05:30", "06:30", "08:30", "11:00", "13:00", "14:30", "16:30", "18:30"];
+const ordGoalStartResources = [
+  { startTime: "02:30", resources: 8 },
+  { startTime: "04:00", resources: 28 },
+  { startTime: "05:30", resources: 2 },
+  { startTime: "06:30", resources: 13 },
+  { startTime: "08:30", resources: 22 },
+  { startTime: "11:00", resources: 23 },
+  { startTime: "13:00", resources: 16 },
+  { startTime: "14:30", resources: 15 },
+  { startTime: "16:30", resources: 12 },
+  { startTime: "18:30", resources: 8 },
+];
+
+function ordPlannerAssumptionDescription(mode: "dynamic" | "fixed" | "fixed-resource", maxStartTimes: number) {
+  const baseDescription = "This ORD plan reads outbound flight, destination, and departure time from the UA turns report, uses the aircraft shown on the turn, and treats the inbound arrival time as the earliest aircraft-ready constraint. Rows with a strip value are planned as protected strip work. It preserves a 30-minute lunch between shift hours 3 and 5";
+  if (mode === "fixed-resource") {
+    return `${baseDescription}, then uses the Goal row as fixed staffing by start wave: ${ordGoalStartResources.map((item) => `${item.startTime} ${item.resources}`).join(", ")}.`;
+  }
+  if (mode === "fixed") {
+    return `${baseDescription}, then models the current-state ORD start pattern exactly: ${ordFixedStartTimes.join(", ")}.`;
+  }
+  return `${baseDescription}, then chooses up to ${maxStartTimes} hour or half-hour start waves for driver, helper, and truck guidance.`;
+}
+
+function ordPlannerResourcePlanDescription(mode: "dynamic" | "fixed" | "fixed-resource") {
+  if (mode === "fixed-resource") return "Best ORD plan using the Goal row as fixed driver and helper staffing by start wave.";
+  if (mode === "fixed") return "Recommended ORD needs using the fixed current-state start waves.";
+  return "Recommended ORD driver, helper, and truck needs by start wave.";
 }
 
 function flightMatchesSelectedSchedule(flight: FlightAssignment, airport: AirportCode, date: string) {

@@ -30,6 +30,9 @@ export const planningRules: PlanningRules = {
       driveOutMinutes: 30,
       returnMinutes: 30,
       gateToGateMoveMinutes: 10,
+      allowShiftStretch: true,
+      lunchWindowStartHour: 3,
+      lunchWindowEndHour: 5,
       separateUnitedAndOtherAirlines: true,
     },
     PDX: {
