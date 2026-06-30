@@ -312,6 +312,38 @@ describe("scheduler", () => {
     assert.equal(result.summary.unscheduledFlights, 0);
   });
 
+  it("protects ORD lunch between shift hours 3 and 5", () => {
+    const earlyShiftDrivers: Driver[] = [
+      { id: "d1", name: "Driver 1", truck: "T1", radio: "R1", shiftStart: "02:30", shiftEnd: "11:00" },
+    ];
+    const earlyShiftHelpers: Helper[] = [
+      { id: "h1", name: "Helper 1", shiftStart: "02:30", shiftEnd: "11:00" },
+    ];
+    const workAcrossLunchWindow = [
+      flight({ id: "f1", flightNumber: "UA100", etd: "06:45", gate: "A1", originAirport: "ABC" }),
+      flight({ id: "f2", flightNumber: "UA101", etd: "08:20", gate: "A2", originAirport: "ABC" }),
+    ];
+
+    const genericResult = createPlanningSchedule(
+      workAcrossLunchWindow,
+      earlyShiftDrivers,
+      earlyShiftHelpers,
+      baseTrucks,
+      { rules: planningRules },
+    );
+    const ordResult = createPlanningSchedule(
+      workAcrossLunchWindow.map((item) => ({ ...item, originAirport: "ORD" })),
+      earlyShiftDrivers,
+      earlyShiftHelpers,
+      baseTrucks,
+      { rules: planningRules },
+    );
+
+    assert.equal(genericResult.summary.unscheduledFlights, 0);
+    assert.equal(ordResult.summary.unscheduledFlights, 1);
+    assert.ok(ordResult.pushes.some((push) => push.driverId === null && push.riskFlags.includes("Driver coverage short")));
+  });
+
   it("rejects critical pairings into exceptions", () => {
     const result = createPlanningSchedule(
       [flight({ aircraft: "Unknown", etd: "10:00" })],

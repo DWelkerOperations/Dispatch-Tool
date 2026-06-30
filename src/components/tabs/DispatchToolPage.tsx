@@ -6,7 +6,7 @@ import { ordCdlDriversForDate } from "../../data/ordCdlDrivers";
 import { planningRules } from "../../data/planningRules";
 import { createManualPlanState, moveFlightToPush, movePushByMinutes } from "../../engine/manualControl";
 import { createDispatchSchedule, filterScheduleResultByOperation } from "../../engine/scheduler";
-import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ResourceInputs, ScheduleResult } from "../../types/dispatch";
+import type { Driver, FlightAssignment, Helper, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
 import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { resourceIds } from "../../utils/resources";
 import { DispatcherTimeline } from "../timeline/DispatcherTimeline";
@@ -30,11 +30,6 @@ export function DispatchToolPage({ flights = mockFlights, planningOperationType,
   const [draftDrivers, setDraftDrivers] = useState(4);
   const [draftHelpers, setDraftHelpers] = useState(1);
   const [draftTrucks, setDraftTrucks] = useState(3);
-  const [resources, setResources] = useState<ResourceInputs>({
-    availableDrivers: 4,
-    availableHelpers: 1,
-    availableTrucks: 3,
-  });
   const availableDrivers = useMemo(() => {
     const cdlDrivers = ordCdlDriversForDate(selectedDate);
     return cdlDrivers.length > 0 ? cdlDrivers : mockDrivers;
@@ -53,7 +48,7 @@ export function DispatchToolPage({ flights = mockFlights, planningOperationType,
     setLoadedPlan(null);
     setDispatchResult(null);
     setOperationType(planningOperationType);
-  }, [flights, selectedDate]);
+  }, [flights, planningOperationType, selectedDate]);
 
   const fullDayResult = dispatchResult ?? loadedPlan;
   const result = useMemo(() => fullDayResult ? filterScheduleResultByOperation(fullDayResult, operationType) : null, [fullDayResult, operationType]);
@@ -67,16 +62,10 @@ export function DispatchToolPage({ flights = mockFlights, planningOperationType,
     setDraftDrivers(planningResult.summary.driversRequired);
     setDraftHelpers(planningResult.summary.helpersRequired);
     setDraftTrucks(planningResult.summary.maxTrucksRequired);
-    setResources({
-      availableDrivers: planningResult.summary.driversRequired,
-      availableHelpers: planningResult.summary.helpersRequired,
-      availableTrucks: planningResult.summary.maxTrucksRequired,
-    });
   }
 
   function handleRefreshPairings() {
     const nextResources = { availableDrivers: draftDrivers, availableHelpers: draftHelpers, availableTrucks: draftTrucks };
-    setResources(nextResources);
     setDispatchResult(createDispatchSchedule(flights, availableDrivers, availableHelpers, mockTrucks, nextResources, { rules }));
     setLoadedPlan(null);
   }
@@ -216,8 +205,14 @@ function ResourceInput({ label, hint, value, onChange }: { label: string; hint: 
   return (
     <label className="block">
       <span className="text-sm font-semibold text-slate-700">{label}</span>
-      <input min={0} max={200} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
+      <input min={0} max={200} type="number" value={value} onChange={(event) => onChange(clampResourceValue(event.target.value))} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-ink shadow-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
       <span className="mt-1 block text-xs text-slate-500">{hint}</span>
     </label>
   );
+}
+
+function clampResourceValue(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(200, Math.trunc(parsed)));
 }

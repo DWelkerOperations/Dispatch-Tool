@@ -28,9 +28,6 @@ export default defineConfig({
     __BUILD_COMMIT__: JSON.stringify(readCommitHash()),
     __BUILD_TIMESTAMP__: JSON.stringify(new Date().toISOString()),
   },
-  server: {
-    allowedHosts: true,
-  },
   build: {
     rollupOptions: {
       output: {

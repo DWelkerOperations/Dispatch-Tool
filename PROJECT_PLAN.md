@@ -14,11 +14,12 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 - Excel schedule import for the active planning file.
 - Thumb-rule driven resource guidance and pairing quality checks.
 - No backend, database, authentication, or live dispatch workflow yet.
+- GitHub Pages deployment from `main` through GitHub Actions.
 - Desktop-first layout for transportation planning review.
 - Primary focus is the Resource Guide.
 - PDX June 11, 2026 and ORD May 14, 2026 are sample/reference schedules only. The tool should stay generic across sites.
 - Generic site behavior is configured through `planningRules.siteOverrides`.
-- Scheduler tests exist and v1.0 passes `pnpm typecheck`, `pnpm test`, and `pnpm build`.
+- Scheduler tests exist and the current baseline passes `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.
 
 ## Current Screens
 
@@ -35,13 +36,13 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 ## v1.0 Limitations
 
 - No backend or database.
-- No persistence across browser sessions.
+- No app-data persistence across browser sessions.
 - No web authentication.
-- No production deployment pipeline.
 - Driver iPhone app is not integrated with the web app.
 - Apple TV dashboard is not integrated with the web app.
 - Internal `kitchen*` model field names remain for compatibility; see `docs/model-compatibility.md`.
 - Scheduler test coverage is useful but not exhaustive.
+- Excel import still uses `xlsx@0.18.5`; guardrails are in place, but parser replacement remains a security follow-up before untrusted workbook use.
 
 ## Near-Term Priorities
 
@@ -51,6 +52,7 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 
 2. Strengthen imported data handling.
    - Keep driver, truck, radio, shift, flight, assignment, lunch, and exception fields easy to understand.
+   - Keep workbook file size, type, sheet-count, and row-count guardrails covered by tests.
    - Avoid backend-style complexity until the planning workflow is clearer.
 
 3. Add planning workflow polish.
@@ -65,18 +67,17 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 
 ## Non-Goals For Now
 
-- No optimization logic.
-- No pairing algorithms.
 - No real airline schedule imports.
 - No authentication.
 - No database.
 - No live dispatching.
-- No deployment automation until the prototype flow is stable.
+- No authenticated production data workflow until the prototype flow is stable.
 
 ## Development Workflow
 
 - Work from the GitHub-connected local folder: `/Users/drewwelker/Documents/Codex Projects/Dispatch Tool/Dispatch-Tool`.
 - Keep changes small and build after each meaningful step.
+- Run `pnpm lint`, `pnpm security:audit`, `pnpm typecheck`, `pnpm test`, and `pnpm build` before publishing.
 - Push stable checkpoints to GitHub.
 
 ## Recommended v1.0 Tag

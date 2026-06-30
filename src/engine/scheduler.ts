@@ -982,8 +982,8 @@ function crewSelectionPreservesLunch(items: ResourcePoolItem[], departure: numbe
   return items.length > 0 && items.every((item) => preservesOperationalBreak(item, departure, returnTime, rules, push));
 }
 
-function preservesOperationalBreak(item: ResourcePoolItem, departure: number, returnTime: number, rules: PlanningRules, _push: Push) {
-  return preservesLunchGap(item, departure, returnTime, rules);
+function preservesOperationalBreak(item: ResourcePoolItem, departure: number, returnTime: number, rules: PlanningRules, push: Push) {
+  return preservesLunchGap(item, departure, returnTime, rules, sharedSiteRules(push.flights, rules));
 }
 
 function siteRules(rules: PlanningRules, siteCode?: string) {
@@ -1079,15 +1079,26 @@ function fitsStandardShift(item: ResourcePoolItem, departure: number, returnTime
   return returnTime <= shiftStart + standardShiftSpanMinutes(rules);
 }
 
-function preservesLunchGap(item: ResourcePoolItem, departure: number, returnTime: number, rules: PlanningRules) {
+function preservesLunchGap(item: ResourcePoolItem, departure: number, returnTime: number, rules: PlanningRules, siteOverride: ReturnType<typeof sharedSiteRules>) {
   const shiftStart = item.shiftStart ?? snapDown((item.firstDeparture ?? departure) - 15, rules);
   const shiftEnd = item.shiftEnd ?? shiftStart + standardShiftSpanMinutes(rules);
   if (shiftEnd - shiftStart < rules.lunchMinutes) return false;
+  const lunchWindow = lunchWindowForShift(shiftStart, shiftEnd, siteOverride);
 
   const assignments = [...item.assignments, { start: departure, end: returnTime }]
     .sort((a, b) => a.start - b.start);
 
-  return hasLunchGap(assignments, shiftStart, shiftEnd, rules.lunchMinutes);
+  return hasLunchGap(assignments, lunchWindow.start, lunchWindow.end, rules.lunchMinutes);
+}
+
+function lunchWindowForShift(shiftStart: number, shiftEnd: number, siteOverride: ReturnType<typeof sharedSiteRules>) {
+  const startHour = siteOverride?.lunchWindowStartHour;
+  const endHour = siteOverride?.lunchWindowEndHour;
+  if (startHour === undefined || endHour === undefined) return { start: shiftStart, end: shiftEnd };
+  return {
+    start: Math.max(shiftStart, shiftStart + startHour * 60),
+    end: Math.min(shiftEnd, shiftStart + endHour * 60),
+  };
 }
 
 function hasLunchGap(assignments: ResourceAssignment[], windowStart: number, windowEnd: number, lunchMinutes: number) {

@@ -1,6 +1,6 @@
 import type { Driver, FlightAssignment, Push } from "../../types/dispatch";
 import { resourceIds } from "../../utils/resources";
-import { DriverRow } from "./DriverRow";
+import { DriverRow, type LunchWindowHours } from "./DriverRow";
 import { useTimelineScale } from "./TimelineScaleContext";
 import { timelineWidth } from "./timelineUtils";
 
@@ -8,12 +8,14 @@ export function TimelineGrid({
   drivers,
   flights,
   pushes = [],
+  lunchWindowHours,
   manualControlActive = false,
   onManualFlightDrop,
 }: {
   drivers: Driver[];
   flights: FlightAssignment[];
   pushes?: Push[];
+  lunchWindowHours?: LunchWindowHours;
   manualControlActive?: boolean;
   onManualFlightDrop?: (change: { flightId: string; targetPushId: string; targetSequence: number }) => void;
 }) {
@@ -26,6 +28,7 @@ export function TimelineGrid({
           driver={driver}
           flights={flights.filter((flight) => flight.driverId === driver.id)}
           pushes={pushes.filter((push) => resourceIds(push.driverId).includes(driver.id))}
+          lunchWindowHours={lunchWindowHours}
           manualControlActive={manualControlActive}
           onManualFlightDrop={onManualFlightDrop}
         />

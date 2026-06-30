@@ -13,6 +13,7 @@ import { TimelineHeader } from "./TimelineHeader";
 import { TimelineLegend } from "./TimelineLegend";
 import { TimelineScaleContext } from "./TimelineScaleContext";
 import { pixelsPerMinute, serviceLabels, serviceStyle, timelineWidth } from "./timelineUtils";
+import type { LunchWindowHours } from "./DriverRow";
 
 export function DispatcherTimeline({
   flights: sourceFlights = mockFlights,
@@ -20,6 +21,7 @@ export function DispatcherTimeline({
   pushes = [],
   driverLabelMode = "actual",
   showDriverRadio = true,
+  lunchWindowHours,
   onTaskTypeChange,
   manualControlActive = false,
   onPushTimeChange,
@@ -30,6 +32,7 @@ export function DispatcherTimeline({
   pushes?: Push[];
   driverLabelMode?: "actual" | "sequential";
   showDriverRadio?: boolean;
+  lunchWindowHours?: LunchWindowHours;
   onTaskTypeChange?: (change: FlightTaskTypeChange) => void;
   manualControlActive?: boolean;
   onPushTimeChange?: (change: { pushId: string; deltaMinutes: number }) => void;
@@ -131,7 +134,7 @@ export function DispatcherTimeline({
         <div className="overflow-auto">
           <div style={{ minWidth: 380 + timelineWidth(timelineScale) }}>
             <TimelineHeader showDriverRadio={showDriverRadio} />
-            <div className="flex"><DriverColumn drivers={drivers} pushes={assignedPushes} driverLabelMode={driverLabelMode} showRadio={showDriverRadio} /><TimelineGrid drivers={drivers} flights={pushes.length > 0 ? [] : assignedFlights} pushes={assignedPushes} manualControlActive={manualControlActive} onManualFlightDrop={onFlightMove} /></div>
+            <div className="flex"><DriverColumn drivers={drivers} pushes={assignedPushes} driverLabelMode={driverLabelMode} showRadio={showDriverRadio} /><TimelineGrid drivers={drivers} flights={pushes.length > 0 ? [] : assignedFlights} pushes={assignedPushes} lunchWindowHours={lunchWindowHours} manualControlActive={manualControlActive} onManualFlightDrop={onFlightMove} /></div>
             {openItemCount > 0 && <OpenFlightsLane flights={pushes.length > 0 ? [] : openFlights} pushes={openPushes} manualControlActive={manualControlActive} onManualFlightDrop={onFlightMove} />}
           </div>
         </div>

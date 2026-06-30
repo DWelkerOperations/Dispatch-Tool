@@ -4,7 +4,7 @@ Modern frontend prototype for airline catering dispatch and transportation resou
 
 ## V1.1 Resource Planning
 
-V1.1 is the current Resource Planning deployment baseline. It is configured for GitHub Pages and includes a lightweight front-end password gate for shared review access.
+V1.1 is the current Resource Planning deployment baseline. It is configured for GitHub Pages and includes a public-prototype notice before the planning workspace opens.
 
 ## v1.0 Baseline
 
@@ -22,22 +22,24 @@ Dispatch Tool v1.0 is the stable generic dispatch/resource planner prototype bas
 - Thumb-rule driven resource guidance
 - Generic site support with site-specific behavior in `planningRules.siteOverrides`
 - Scheduler test harness covering core pairing, risk, shortage, site override, shared resource pool, lunch-window, and critical-rejection behavior
-- `pnpm typecheck`, `pnpm test`, and `pnpm build` pass for the v1.0 baseline
+- `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` pass for the current baseline
 - Live dispatching is intentionally out of scope for now
 - Embedded PDX and ORD schedules are sample/reference data, not product-specific scope
 
 ## Known v1.0 Limitations
 
-- No backend, database, or persistence
+- No backend, database, or app-data persistence
 - No web authentication
-- No production deployment workflow
 - Driver iPhone app is a separate prototype and is not integrated
 - Apple TV dashboard is a separate prototype and is not integrated
 - Internal `kitchen*` model field names remain for compatibility; see [model compatibility notes](docs/model-compatibility.md)
 - Scheduler tests are useful but not exhaustive
 - PDX June 11, 2026 and ORD May 14, 2026 are sample/reference datasets only
+- Excel import still uses `xlsx@0.18.5`, which has known advisories. File size/type/row/sheet guardrails are in place, but parser replacement remains a security follow-up before untrusted workbook use.
 
 ## Local development
+
+Requires Node.js 20+ and pnpm. The GitHub Pages workflow currently runs Node 20 and pnpm 9.
 
 ```bash
 pnpm install
@@ -75,7 +77,7 @@ Deployment behavior:
 - Viewers do not need a GitHub account or GitHub login.
 - The stable shared page updates only after code is committed and pushed to `main`.
 - The beta page updates after code is committed and pushed to `v1.1Beta`.
-- The GitHub Actions workflow installs dependencies, runs checks, builds stable with the `/Dispatch-Tool/` base path, builds beta with the `/Dispatch-Tool/v1.1Beta/` base path when the beta branch exists, and publishes both into one Pages artifact.
+- The GitHub Actions workflow installs dependencies, runs typecheck/lint/audit/tests, builds stable with the `/Dispatch-Tool/` base path, builds beta with the `/Dispatch-Tool/v1.1Beta/` base path when the beta branch exists, and publishes both into one Pages artifact.
 - Use `workflow_dispatch` from GitHub Actions if a manual redeploy of the current `main` commit is needed.
 
 One-time GitHub repository setup:
@@ -89,6 +91,8 @@ Future update flow:
 
 ```bash
 git status
+pnpm lint
+pnpm security:audit
 pnpm typecheck
 pnpm test
 pnpm build
@@ -97,21 +101,35 @@ git commit -m "Describe the update"
 git push origin main
 ```
 
-If you work on a feature branch first, merge that branch into `main` and push `main` to update the shared page.
+To update the Beta 1.1 page, push the desired beta commit to `v1.1Beta`.
 
-## Lightweight access gate
+```bash
+git push origin HEAD:v1.1Beta
+```
 
-The deployed app shows a password screen before the planning workspace is displayed. Successful access is remembered in browser local storage so reviewers do not need to re-enter the password on every refresh.
+If you work on a feature branch first, merge that branch into `main` to update stable, or push it to `v1.1Beta` to update the beta page.
 
-This is lightweight access friction only. It is not true security, authentication, authorization, or data protection. Do not treat the GitHub Pages site as private.
+## Public prototype notice
+
+The deployed app shows a public-prototype notice before the planning workspace is displayed. Acknowledgement is remembered in browser local storage so reviewers do not need to re-acknowledge on every refresh.
+
+This is lightweight safety friction only. It is not security, authentication, authorization, or data protection. Do not treat the GitHub Pages site as private.
+
+## Schedule import guardrails
+
+The browser importer accepts `.xlsx` and `.xls` workbooks up to 8 MB, rejects empty files, rejects unrecognized MIME types when provided by the browser, rejects workbooks with more than 20 sheets, and rejects parsed schedules with more than 25,000 rows. These guardrails reduce accidental browser crashes and adversarial file risk, but they do not make untrusted workbook parsing safe.
+
+The production dependency audit is configured in `pnpm-workspace.yaml` to ignore the two known `xlsx@0.18.5` advisories while this parser replacement remains open; new high-severity production advisories should still fail `pnpm security:audit`.
 
 ## Data and secrets warning
 
-Do not commit secrets, API keys, credentials, private staffing files, real employee data, customer data, sensitive schedules, or sensitive operational data. This app is frontend-only and GitHub Pages publishes static files to anyone who has the URL and password.
+Do not commit secrets, API keys, credentials, private staffing files, real employee data, customer data, sensitive schedules, or sensitive operational data. This app is frontend-only and GitHub Pages publishes static files to anyone who has the URL.
 
 ## Verification
 
 ```bash
+pnpm lint
+pnpm security:audit
 pnpm typecheck
 pnpm test
 pnpm build

@@ -337,6 +337,8 @@ export type SitePlanningRules = {
   sharedResourcePool?: boolean;
   allowShiftStretch?: boolean;
   preserveLunchWindow?: boolean;
+  lunchWindowStartHour?: number;
+  lunchWindowEndHour?: number;
   preferredReuseWindowMinutes?: number;
   lateWavePenaltyPerMinute?: number;
   maxFlightsPerPush?: number;

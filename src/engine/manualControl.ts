@@ -166,7 +166,7 @@ function recalculatePush(
   const standardGap = gateMoveMinutesForSite(flights[0]?.originAirport, rules);
   const gapMinutes = Math.max(0, snapToFiveMinutes(options.gapMinutes));
   let currentStart = options.manualKitchenDeparture + outboundDriveAndSealMinutes;
-  let idleMinutes = 0;
+  const idleMinutes = 0;
   let utilizationMinutes = outboundDriveAndSealMinutes + returnMinutes;
   let isFeasible = true;
   const riskFlags: string[] = [];

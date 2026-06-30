@@ -26,6 +26,9 @@ export type ScheduleImportResult = {
   warnings: string[];
 };
 
+export const maxScheduleFileBytes = 8 * 1024 * 1024;
+export const maxScheduleRows = 25000;
+
 type HeaderIndex = Record<string, number>;
 type FormatDefinition = {
   id: ScheduleFormatId;
@@ -34,6 +37,15 @@ type FormatDefinition = {
   read: (row: unknown[], sourceRowNumber: number, headers: HeaderIndex) => NormalizedScheduleRow;
 };
 
+type ScheduleFileMetadata = Pick<File, "name" | "size" | "type">;
+
+const acceptedScheduleExtensions = new Set([".xls", ".xlsx"]);
+const acceptedScheduleMimeTypes = new Set([
+  "",
+  "application/octet-stream",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
 const aircraftCodeSet = new Set(aircraftInterpretations.map((item) => item.inputName.toUpperCase()));
 const aircraftNameSet = new Set(aircraftInterpretations.map((item) => item.standardName.toUpperCase()));
 
@@ -193,16 +205,48 @@ function emptySourceRow(sourceRowNumber: number): NormalizedScheduleRow {
 }
 
 export async function parseScheduleFile(file: File): Promise<ScheduleImportResult> {
+  validateScheduleFileMetadata(file);
   const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  if (workbook.SheetNames.length > 20) {
+    throw new Error("The workbook has too many sheets. Upload a schedule workbook with 20 sheets or fewer.");
+  }
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) throw new Error("The workbook does not contain a readable schedule sheet.");
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "" });
+  if (rows.length > maxScheduleRows) {
+    throw new Error(`The schedule has too many rows. Upload a schedule with ${maxScheduleRows.toLocaleString()} rows or fewer.`);
+  }
   return parseScheduleRows(rows);
 }
 
+export function validateScheduleFileMetadata(file: ScheduleFileMetadata) {
+  const normalizedName = file.name.trim().toLowerCase();
+  const extension = normalizedName.includes(".") ? normalizedName.slice(normalizedName.lastIndexOf(".")) : "";
+
+  if (!acceptedScheduleExtensions.has(extension)) {
+    throw new Error("Upload an Excel schedule file ending in .xlsx or .xls.");
+  }
+
+  if (file.size <= 0) {
+    throw new Error("The selected schedule file is empty.");
+  }
+
+  if (file.size > maxScheduleFileBytes) {
+    throw new Error(`The selected schedule is too large. Upload a file smaller than ${formatBytes(maxScheduleFileBytes)}.`);
+  }
+
+  if (!acceptedScheduleMimeTypes.has(file.type)) {
+    throw new Error("The selected file type is not recognized as an Excel workbook.");
+  }
+}
+
 export function parseScheduleRows(rows: unknown[][]): ScheduleImportResult {
+  if (rows.length > maxScheduleRows) {
+    throw new Error(`The schedule has too many rows. Upload a schedule with ${maxScheduleRows.toLocaleString()} rows or fewer.`);
+  }
+
   const detected = detectScheduleFormat(rows);
   if (!detected) {
     throw new Error("Unknown schedule format. Include headers for date, flight or airline/flight number, departure time, aircraft, origin site, and destination.");
@@ -496,6 +540,10 @@ function has(headers: HeaderIndex, ...keys: string[]) {
 function cellText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function formatBytes(bytes: number) {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
 }
 
 function normalizeHeader(value: unknown) {
