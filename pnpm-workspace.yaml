@@ -1,3 +1,6 @@
+packages:
+  - "."
+
 auditConfig:
   ignoreGhsas:
     # Known xlsx@0.18.5 advisories tracked in README and the June 25 review.
