@@ -375,7 +375,7 @@ function toFlights(assignments: FlightAssignment[], rules: PlanningRules, operat
   const outboundFlights = assignments
     .filter((flight) => flight.serviceType !== "break")
     .map((flight) => {
-      const etdMinutes = timeToMinutes(flight.etd);
+      const etdMinutes = operatingDayDepartureMinutes(flight.etd, rules);
       const aircraftCategory = categoryForAircraft(flight.aircraft);
       const flightOperationType: OperationType = operationTypeForAircraft(flight.aircraft);
       const serviceMinutes = serviceMinutesForAircraft(flight.aircraft, aircraftCategory, rules);
@@ -396,7 +396,7 @@ function toFlights(assignments: FlightAssignment[], rules: PlanningRules, operat
         id: flight.id,
         flightNumber: flight.flightNumber,
         gate: flight.gate,
-        etd: flight.etd,
+        etd: minutesToTime(etdMinutes),
         eta: flight.eta,
         inboundEta: flight.inboundEta,
         aircraft: flight.aircraft,
@@ -418,6 +418,11 @@ function toFlights(assignments: FlightAssignment[], rules: PlanningRules, operat
 }
 
 const internationalStripOffsetMinutes = 240;
+
+function operatingDayDepartureMinutes(etd: string, rules: PlanningRules) {
+  const minutes = timeToMinutes(etd);
+  return minutes - rules.earliestCateringBeforeDepartureMinutes < 0 ? minutes + 24 * 60 : minutes;
+}
 
 function createInternationalStripFlights(outboundFlights: Flight[], rules: PlanningRules): Flight[] {
   return outboundFlights

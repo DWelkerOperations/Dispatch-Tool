@@ -157,6 +157,7 @@ describe("schedule import normalization", () => {
     assert.doesNotThrow(() => validateScheduleFileMetadata({ name: "schedule.xlsx", size: 100, type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
     assert.doesNotThrow(() => validateScheduleFileMetadata({ name: "schedule.xls", size: 100, type: "application/vnd.ms-excel" }));
     assert.doesNotThrow(() => validateScheduleFileMetadata({ name: "schedule.xls", size: 100, type: "" }));
+    assert.doesNotThrow(() => validateScheduleFileMetadata({ name: "large-tripmaster.xlsx", size: 32 * 1024 * 1024, type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
   });
 
   it("rejects schedules with too many rows", () => {

@@ -26,7 +26,7 @@ export type ScheduleImportResult = {
   warnings: string[];
 };
 
-export const maxScheduleFileBytes = 8 * 1024 * 1024;
+export const maxScheduleFileBytes = 64 * 1024 * 1024;
 export const maxScheduleRows = 25000;
 
 type HeaderIndex = Record<string, number>;

@@ -141,17 +141,23 @@ describe("scheduler", () => {
     assert.equal(result.pushes[0]?.serviceEvents[0]?.riskStatus, "unknown-aircraft");
   });
 
-  it("rejects schedule math that would create negative clock times", () => {
-    assert.throws(
-      () => createPlanningSchedule(
-        [flight({ etd: "02:00" })],
-        baseDrivers,
-        baseHelpers,
-        baseTrucks,
-        { rules: planningRules },
-      ),
-      /Invalid minute value: -/,
+  it("plans after-midnight departures on the operating-day timeline", () => {
+    const result = createPlanningSchedule(
+      [flight({ etd: "02:00" })],
+      [
+        { id: "d-late", name: "Late Driver", truck: "T1", radio: "R1", shiftStart: "20:00", shiftEnd: "28:30" },
+      ],
+      [
+        { id: "h-late", name: "Late Helper", shiftStart: "20:00", shiftEnd: "28:30" },
+      ],
+      baseTrucks,
+      { rules: planningRules },
     );
+
+    assert.equal(result.summary.totalFlights, 1);
+    assert.equal(result.summary.unscheduledFlights, 0);
+    assert.equal(result.pushes[0]?.flights[0]?.etd, "26:00");
+    assert.ok((result.pushes[0]?.kitchenDepartureTime ?? "00:00") > "24:00");
   });
 
   it("reports resource shortages in dispatch mode", () => {

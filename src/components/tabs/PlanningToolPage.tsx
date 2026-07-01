@@ -109,6 +109,8 @@ export function PlanningToolPage({
   const [manualControlEnabled, setManualControlEnabled] = useState(false);
   const [manualPlan, setManualPlan] = useState<ManualPlanState | null>(null);
   const [allowReducedManualGaps, setAllowReducedManualGaps] = useState(false);
+  const [planningError, setPlanningError] = useState<string | null>(null);
+  const [isBuildingPlan, setIsBuildingPlan] = useState(false);
   const runRules = useMemo(
     () => showIterationControls ? { ...rules, maxFlightsPerPush: iterationSettings.maxFlightsPerPush } : rules,
     [iterationSettings.maxFlightsPerPush, rules, showIterationControls],
@@ -135,33 +137,41 @@ export function PlanningToolPage({
     setAllowReducedManualGaps(false);
   }, [result]);
 
-  function handleCreatePairings(options?: { maxStartTimes?: number; shiftStartIncrementMinutes?: number }) {
-    const shiftStartIncrementMinutes = options?.shiftStartIncrementMinutes ?? defaultShiftStartIncrementMinutes;
-    const activePlanningResources = isFixedResourceMode && fixedStartResources.length > 0
-      ? createFixedResourcePlanningResources(fixedStartResources, runRules)
-      : isFixedStartTimeMode && fixedStartTimes.length > 0
-      ? createFixedStartPlanningResources(fixedStartTimes, runRules)
-      : shiftStartIncrementMinutes === defaultShiftStartIncrementMinutes
-      ? planningResources
-      : createPlanningResources(flights, runRules, shiftStartIncrementMinutes);
-    const maxStartTimes = options?.maxStartTimes ?? maxAllowedStartTimes;
+  async function handleCreatePairings(options?: { maxStartTimes?: number; shiftStartIncrementMinutes?: number }) {
+    setPlanningError(null);
+    setIsBuildingPlan(true);
 
-    const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks) => {
-      const nextResult = createPlanningSchedule(flights, drivers, helpers, trucks, {
+    try {
+      await waitForPaint();
+      const shiftStartIncrementMinutes = options?.shiftStartIncrementMinutes ?? defaultShiftStartIncrementMinutes;
+      const activePlanningResources = isFixedResourceMode && fixedStartResources.length > 0
+        ? createFixedResourcePlanningResources(fixedStartResources, runRules)
+        : isFixedStartTimeMode && fixedStartTimes.length > 0
+        ? createFixedStartPlanningResources(fixedStartTimes, runRules)
+        : shiftStartIncrementMinutes === defaultShiftStartIncrementMinutes
+        ? planningResources
+        : createPlanningResources(flights, runRules, shiftStartIncrementMinutes);
+      const maxStartTimes = options?.maxStartTimes ?? maxAllowedStartTimes;
+
+      const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks) => createPlanningSchedule(flights, drivers, helpers, trucks, {
         rules: runRules,
         pairingStrategy: { targetThreeFlightPairingPercent, allowUrgentPairings: !preventUrgentPairings },
       });
-      return nextResult;
-    };
 
-    const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks);
-    const selectedStartTimes = (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
-      ? fixedStartTimes
-      : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
-    const targetResources = isFixedResourceMode && fixedStartResources.length > 0
-      ? createFixedResourcePlanningResources(fixedStartResources, rules)
-      : createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules, { preserveExactStarts: isFixedStartTimeMode });
-    onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
+      const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks);
+      const selectedStartTimes = (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
+        ? fixedStartTimes
+        : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
+      const targetResources = isFixedResourceMode && fixedStartResources.length > 0
+        ? createFixedResourcePlanningResources(fixedStartResources, rules)
+        : createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules, { preserveExactStarts: isFixedStartTimeMode });
+      onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
+    } catch (error) {
+      setPlanningError(error instanceof Error ? error.message : "Could not create guidance for this schedule.");
+      onResultChange(null);
+    } finally {
+      setIsBuildingPlan(false);
+    }
   }
 
   function handleManualControlToggle() {
@@ -226,8 +236,13 @@ export function PlanningToolPage({
                 onModeChange={onStartTimeModeChange}
               />
             )}
-            <button onClick={() => handleCreatePairings()} className="rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
-              {createButtonLabel}
+            <button
+              type="button"
+              onClick={() => void handleCreatePairings()}
+              disabled={isBuildingPlan || flights.length === 0}
+              className="rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:bg-slate-300"
+            >
+              {isBuildingPlan ? "Building..." : createButtonLabel}
             </button>
             {onExport && visibleResult && (
               <button
@@ -250,6 +265,13 @@ export function PlanningToolPage({
             onResultChange(null);
           }}
         />
+      )}
+
+      {planningError && (
+        <Panel className="border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-semibold text-red-700">Could not create guidance</p>
+          <p className="mt-1 text-sm leading-6 text-red-700">{planningError}</p>
+        </Panel>
       )}
 
       {!visibleResult ? (
@@ -799,6 +821,16 @@ function RiskKeyItem({ label, window, detail, tone }: { label: string; window: s
       <div className="text-[10px] leading-4 text-slate-500">{detail}</div>
     </div>
   );
+}
+
+function waitForPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+      resolve();
+      return;
+    }
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 function driversUsedByPlan(drivers: Driver[], pushes: Push[]) {
