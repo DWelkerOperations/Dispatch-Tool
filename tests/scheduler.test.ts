@@ -95,7 +95,7 @@ describe("scheduler", () => {
     assert.deepEqual(result.pushes.map((push) => push.flights.length), [3, 3]);
   });
 
-  it("prioritizes a previously assigned legal driver over opening a fresh shift", () => {
+  it("opens a fresh legal shift when reuse would be inefficient", () => {
     const drivers: Driver[] = [
       { id: "d-early", name: "Early Driver", truck: "T1", radio: "R1", shiftStart: "06:00", shiftEnd: "16:30" },
       { id: "d-later", name: "Later Driver", truck: "T2", radio: "R2", shiftStart: "10:00", shiftEnd: "18:30" },
@@ -124,8 +124,34 @@ describe("scheduler", () => {
     );
 
     assert.equal(result.summary.totalPushes, 2);
-    assert.equal(result.summary.driversRequired, 1);
-    assert.deepEqual([...new Set(result.pushes.map((push) => push.driverId))], ["mainline-d-early"]);
+    assert.equal(result.summary.driversRequired, 2);
+    assert.deepEqual([...new Set(result.pushes.map((push) => push.driverId))], ["mainline-d-early", "mainline-d-later"]);
+  });
+
+  it("keeps resource guide planning out of overtime when shift overflow is disabled", () => {
+    const drivers: Driver[] = [
+      { id: "d-early", name: "Early Driver", truck: "T1", radio: "R1", shiftStart: "00:00", shiftEnd: "08:30" },
+      { id: "d-later", name: "Later Driver", truck: "T2", radio: "R2", shiftStart: "04:00", shiftEnd: "12:30" },
+    ];
+    const helpers: Helper[] = [
+      { id: "h-early", name: "Early Helper", shiftStart: "00:00", shiftEnd: "08:30" },
+      { id: "h-later", name: "Later Helper", shiftStart: "04:00", shiftEnd: "12:30" },
+    ];
+
+    const result = createPlanningSchedule(
+      [
+        flight({ id: "f1", flightNumber: "UA100", etd: "06:00", gate: "A1", originAirport: "ORD" }),
+        flight({ id: "f2", flightNumber: "UA101", etd: "10:30", gate: "A2", originAirport: "ORD" }),
+      ],
+      drivers,
+      helpers,
+      baseTrucks,
+      { rules: planningRules, operationType: "mainline", allowShiftOverflow: false },
+    );
+
+    assert.equal(result.summary.unscheduledFlights, 0);
+    assert.equal(result.summary.driversRequired, 2);
+    assert.ok(result.pushes.every((push) => !push.riskFlags.includes("Shift exceeds standard shift span")));
   });
 
   it("marks unknown aircraft as critical timing risk", () => {
@@ -355,7 +381,7 @@ describe("scheduler", () => {
     assert.equal(result.summary.unscheduledFlights, 0);
   });
 
-  it("protects ORD lunch between shift hours 3 and 5", () => {
+  it("keeps ORD lunch-window work assigned when overtime is the better resource plan", () => {
     const earlyShiftDrivers: Driver[] = [
       { id: "d1", name: "Driver 1", truck: "T1", radio: "R1", shiftStart: "02:30", shiftEnd: "11:00" },
     ];
@@ -383,8 +409,9 @@ describe("scheduler", () => {
     );
 
     assert.equal(genericResult.summary.unscheduledFlights, 0);
-    assert.equal(ordResult.summary.unscheduledFlights, 1);
-    assert.ok(ordResult.pushes.some((push) => push.driverId === null && push.riskFlags.includes("Driver coverage short")));
+    assert.equal(ordResult.summary.unscheduledFlights, 0);
+    assert.equal(ordResult.summary.driversRequired, 1);
+    assert.ok(ordResult.pushes.some((push) => push.riskFlags.includes("Shift exceeds standard shift span")));
   });
 
   it("rejects critical pairings into exceptions", () => {

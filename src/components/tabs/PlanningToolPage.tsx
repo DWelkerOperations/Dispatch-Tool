@@ -44,6 +44,7 @@ type PlanningToolPageProps = {
   startTimeMode?: StartTimeMode;
   fixedStartTimes?: string[];
   fixedStartResources?: FixedStartResource[];
+  allowShiftOverflow?: boolean;
   onDateChange: (date: string) => void;
   onFlightTaskTypeChange?: (change: FlightTaskTypeChange) => void;
   onOperationTypeChange: (operationType: OperationView) => void;
@@ -92,6 +93,7 @@ export function PlanningToolPage({
   startTimeMode = "dynamic",
   fixedStartTimes = [],
   fixedStartResources = [],
+  allowShiftOverflow = true,
   onDateChange,
   onFlightTaskTypeChange,
   onOperationTypeChange,
@@ -156,10 +158,13 @@ export function PlanningToolPage({
       const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks) => createPlanningSchedule(flights, drivers, helpers, trucks, {
         rules: runRules,
         pairingStrategy: { targetThreeFlightPairingPercent, allowUrgentPairings: !preventUrgentPairings },
+        allowShiftOverflow,
       });
 
       const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks);
-      const selectedStartTimes = (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
+      const selectedStartTimes = !allowShiftOverflow
+        ? candidateShiftStartsForFlights(flights, runRules, shiftStartIncrementMinutes)
+        : (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
         ? fixedStartTimes
         : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
       const targetResources = isFixedResourceMode && fixedStartResources.length > 0
@@ -213,7 +218,9 @@ export function PlanningToolPage({
   }
 
   const timelineDrivers = visibleResult ? driversUsedByPlan(planningResources.drivers, visibleResult.pushes) : planningResources.drivers.slice(0, 12);
-  const startWaves = visibleResult ? createStartWaves(visibleResult.pushes, planningResources.drivers) : [];
+  const startWaves = visibleResult
+    ? limitStartWaves(createStartWaves(visibleResult.pushes, planningResources.drivers), maxAllowedStartTimes)
+    : [];
 
   return (
     <div className="space-y-5">
@@ -880,6 +887,22 @@ function createStartWaves(pushes: Push[], drivers: Driver[]): StartWave[] {
     .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 }
 
+function limitStartWaves(startWaves: StartWave[], maxAllowedStartTimes: number) {
+  const startTimeLimit = Math.max(minShiftBidStartTimes, Math.min(maxShiftBidStartTimes, maxAllowedStartTimes));
+  const waves = startWaves.map((wave) => ({ ...wave, minutes: timeToMinutes(wave.startTime) }));
+
+  while (waves.length > startTimeLimit) {
+    const mergeIndex = lowestVolumeMergeableWaveIndex(waves);
+    const neighborIndex = nearestWaveIndex(waves, mergeIndex);
+    waves[neighborIndex].driverStarts += waves[mergeIndex].driverStarts;
+    waves.splice(mergeIndex, 1);
+  }
+
+  return waves
+    .sort((a, b) => a.minutes - b.minutes)
+    .map(({ minutes: _minutes, ...wave }) => wave);
+}
+
 function driverForResourceId(driverId: string, drivers: Driver[]): Driver {
   const directMatch = drivers.find((driver) => driver.id === driverId);
   if (directMatch) return directMatch;
@@ -1067,7 +1090,7 @@ function selectShiftBidStartTimes(pushes: Push[], drivers: Driver[], maxAllowedS
     .map((wave) => normalizedShiftStart(wave.startTime));
 }
 
-const earliestGeneratedDayStartMinutes = 180;
+const earliestGeneratedDayStartMinutes = 0;
 const overnightCoverageStart = "00:00";
 const overnightCoverageEnd = "03:00";
 const overnightCoverageEndNextDay = "27:00";

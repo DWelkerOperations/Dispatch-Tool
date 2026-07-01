@@ -6,7 +6,7 @@ import { resourceIds } from "../utils/resources";
 
 type ResourceAssignment = { start: number; end: number };
 type ResourcePoolItem = { id: string; availableAt: number; shiftStart?: number; shiftEnd?: number; firstDeparture?: number; assignedCount: number; vehicleType?: Truck["vehicleType"]; assignments: ResourceAssignment[] };
-type ScheduleOptions = { operationType?: OperationType; rules?: PlanningRules; pairingStrategy?: PairingStrategy };
+type ScheduleOptions = { operationType?: OperationType; rules?: PlanningRules; pairingStrategy?: PairingStrategy; allowShiftOverflow?: boolean };
 
 const kitchenUnloadMinutes = 15;
 const standardPlanningPairingStrategy: PairingStrategy = { targetThreeFlightPairingPercent: 80 };
@@ -14,9 +14,10 @@ const standardPlanningPairingStrategy: PairingStrategy = { targetThreeFlightPair
 export function createPlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], options: ScheduleOptions = {}): ScheduleResult {
   const rules = options.rules ?? planningRules;
   const pairingStrategy = options.pairingStrategy ?? standardPlanningPairingStrategy;
-  if (!options.operationType && usesSharedResourcePool(assignments, rules)) return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, undefined, pairingStrategy);
-  if (!options.operationType) return createIndependentOperationPlanningSchedule(assignments, drivers, helpers, trucks, rules, pairingStrategy);
-  return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, options.operationType, pairingStrategy);
+  const allowShiftOverflow = options.allowShiftOverflow ?? true;
+  if (!options.operationType && usesSharedResourcePool(assignments, rules)) return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, undefined, pairingStrategy, allowShiftOverflow);
+  if (!options.operationType) return createIndependentOperationPlanningSchedule(assignments, drivers, helpers, trucks, rules, pairingStrategy, allowShiftOverflow);
+  return createSinglePlanningSchedule(assignments, drivers, helpers, trucks, rules, options.operationType, pairingStrategy, allowShiftOverflow);
 }
 
 function usesSharedResourcePool(assignments: FlightAssignment[], rules: PlanningRules) {
@@ -24,20 +25,20 @@ function usesSharedResourcePool(assignments: FlightAssignment[], rules: Planning
   return workingFlights.length > 0 && workingFlights.every((flight) => siteRules(rules, flight.originAirport).sharedResourcePool);
 }
 
-function createSinglePlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, operationType?: OperationType, pairingStrategy?: PairingStrategy): ScheduleResult {
+function createSinglePlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, operationType?: OperationType, pairingStrategy?: PairingStrategy, allowShiftOverflow = true): ScheduleResult {
   const flights = toFlights(assignments, rules, operationType);
   const candidatePushes = optimizePairings(buildCandidatePucks(flights, rules), rules, pairingStrategy);
-  const scheduledPushes = assignUnlimitedResources(candidatePushes, drivers, helpers, trucks, rules, pairingStrategy);
+  const scheduledPushes = assignUnlimitedResources(candidatePushes, drivers, helpers, trucks, rules, pairingStrategy, allowShiftOverflow);
   return buildResult("planning", scheduledPushes, [], rules);
 }
 
-function createIndependentOperationPlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, pairingStrategy?: PairingStrategy): ScheduleResult {
+function createIndependentOperationPlanningSchedule(assignments: FlightAssignment[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, pairingStrategy?: PairingStrategy, allowShiftOverflow = true): ScheduleResult {
   const mainline = prefixScheduleResult(
-    createSinglePlanningSchedule(assignments, prefixDrivers(drivers, "mainline"), prefixHelpers(helpers, "mainline"), prefixTrucks(trucks, "mainline"), rules, "mainline", pairingStrategy),
+    createSinglePlanningSchedule(assignments, prefixDrivers(drivers, "mainline"), prefixHelpers(helpers, "mainline"), prefixTrucks(trucks, "mainline"), rules, "mainline", pairingStrategy, allowShiftOverflow),
     "M",
   );
   const express = prefixScheduleResult(
-    createSinglePlanningSchedule(assignments, prefixDrivers(drivers, "express"), prefixHelpers(helpers, "express"), prefixTrucks(trucks, "express"), rules, "express", pairingStrategy),
+    createSinglePlanningSchedule(assignments, prefixDrivers(drivers, "express"), prefixHelpers(helpers, "express"), prefixTrucks(trucks, "express"), rules, "express", pairingStrategy, allowShiftOverflow),
     "E",
   );
 
@@ -801,8 +802,8 @@ function commonAircraftCategory(flights: Flight[]): AircraftCategory {
   return categories.length === 1 ? categories[0] : "narrowbody";
 }
 
-function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, _pairingStrategy?: PairingStrategy) {
-  const allowSiteShiftStretch = drivers.length > 0;
+function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, _pairingStrategy?: PairingStrategy, allowShiftOverflow = true) {
+  const allowSiteShiftStretch = allowShiftOverflow && drivers.length > 0;
   const attempts = assignmentSorts.map((sortPushes) => (
     assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules, allowSiteShiftStretch, sortPushes)
   ));
@@ -917,25 +918,19 @@ function createShiftPoolItem(id: string, shiftStart: string, shiftEnd: string): 
 
 function bestShiftResource(pool: ResourcePoolItem[], departure: number, returnTime: number, rules: PlanningRules, allowShiftOverflow: boolean, push: Push) {
   if (allowShiftOverflow) {
-    const reusable = pool
-      .filter((item) => item.availableAt <= departure && fitsAggressivePdxShift(item, returnTime) && preservesOperationalBreak(item, departure, returnTime, rules, push))
-      .sort((a, b) => compareShiftResources(a, b, departure, rules, push));
+    const candidates = pool
+      .filter((item) => item.availableAt <= departure && preservesOperationalBreak(item, departure, returnTime, rules, push))
+      .sort((a, b) => compareShiftResources(a, b, departure, returnTime, rules, push));
 
-    if (reusable.length > 0) return reusable[0];
+    if (candidates.length > 0) return candidates[0];
   }
 
   const feasible = pool
     .filter((item) => item.availableAt <= departure && fitsStandardShift(item, departure, returnTime, rules) && preservesOperationalBreak(item, departure, returnTime, rules, push))
-    .sort((a, b) => compareShiftResources(a, b, departure, rules, push));
+    .sort((a, b) => compareShiftResources(a, b, departure, returnTime, rules, push));
 
   if (feasible.length > 0) return feasible[0];
   return allowShiftOverflow ? bestReusableResource(pool, departure, returnTime, rules, push) : undefined;
-}
-
-function fitsAggressivePdxShift(item: ResourcePoolItem, returnTime: number) {
-  const pdxShiftStretchMinutes = 75;
-  if (item.shiftEnd === undefined) return true;
-  return returnTime <= item.shiftEnd + pdxShiftStretchMinutes;
 }
 
 function bestShiftResources(pool: ResourcePoolItem[], departure: number, returnTime: number, count: number, rules: PlanningRules, allowShiftOverflow: boolean, push: Push) {
@@ -958,32 +953,31 @@ function bestReusableResource(pool: ResourcePoolItem[], departure: number, retur
     .sort((a, b) => {
       const delayDiff = Math.max(0, a.availableAt - departure) - Math.max(0, b.availableAt - departure);
       if (delayDiff !== 0) return delayDiff;
-      return compareShiftResources(a, b, departure, rules, push);
+      return compareShiftResources(a, b, departure, returnTime, rules, push);
     });
 
   if (reusable.length > 0) return reusable[0];
   return undefined;
 }
 
-function compareShiftResources(a: ResourcePoolItem, b: ResourcePoolItem, departure: number, rules: PlanningRules, push?: Push) {
-  const aHasWork = a.assignedCount > 0;
-  const bHasWork = b.assignedCount > 0;
-  if (aHasWork !== bHasWork) return aHasWork ? -1 : 1;
-
-  const scoreDelta = shiftResourceScore(b, departure, rules, push) - shiftResourceScore(a, departure, rules, push);
+function compareShiftResources(a: ResourcePoolItem, b: ResourcePoolItem, departure: number, returnTime: number, rules: PlanningRules, push?: Push) {
+  const scoreDelta = shiftResourceScore(b, departure, returnTime, rules, push) - shiftResourceScore(a, departure, returnTime, rules, push);
   if (scoreDelta !== 0) return scoreDelta;
   return b.availableAt - a.availableAt;
 }
 
-function shiftResourceScore(item: ResourcePoolItem, departure: number, rules: PlanningRules, push?: Push) {
+function shiftResourceScore(item: ResourcePoolItem, departure: number, returnTime: number, rules: PlanningRules, push?: Push) {
   const siteOverride = push ? sharedSiteRules(push.flights, rules) : undefined;
   const preferredReuseWindowMinutes = siteOverride?.preferredReuseWindowMinutes ?? 255;
   const lateWavePenaltyPerMinute = siteOverride?.lateWavePenaltyPerMinute ?? 2;
   const shiftStart = item.shiftStart ?? 0;
   const minutesIntoShift = departure - shiftStart;
   const lateWavePenalty = Math.max(0, minutesIntoShift - preferredReuseWindowMinutes) * lateWavePenaltyPerMinute;
-  return item.assignedCount * 100 - lateWavePenalty + shiftStart / 10000;
+  const overtimePenalty = Math.max(0, returnTime - (item.shiftEnd ?? Number.POSITIVE_INFINITY)) * overtimeReusePenaltyPerMinute;
+  return item.assignedCount * 100 - lateWavePenalty - overtimePenalty + shiftStart / 10000;
 }
+
+const overtimeReusePenaltyPerMinute = 0.45;
 
 function crewSelectionPreservesLunch(items: ResourcePoolItem[], departure: number, returnTime: number, rules: PlanningRules, push: Push) {
   return items.length > 0 && items.every((item) => preservesOperationalBreak(item, departure, returnTime, rules, push));
@@ -1336,7 +1330,7 @@ function assignmentScore(pushes: Push[], rules: PlanningRules) {
   const driverCount = new Set(pushes.flatMap((push) => resourceIds(push.driverId))).size;
   const helperCount = new Set(pushes.flatMap((push) => resourceIds(push.helperId).filter((id) => id !== "needed"))).size;
   const truckCount = new Set(pushes.flatMap((push) => truckIdsForPush(push.truckId))).size;
-  const issueCount = pushes.reduce((total, push) => total + push.exceptionFlags.length, 0);
+  const issueCount = pushes.reduce((total, push) => total + push.exceptionFlags.filter((flag) => flag !== "Shift exceeds standard shift span").length, 0);
   const activePushMinutes = pushes.reduce((total, push) => total + push.totalDurationMinutes, 0);
   const unusedDriverShiftMinutes = Math.max(0, driverCount * standardShiftSpanMinutes(rules) - activePushMinutes);
   return issueCount * 100000 + driverCount * 10000 + unusedDriverShiftMinutes + helperCount * 50 + truckCount;

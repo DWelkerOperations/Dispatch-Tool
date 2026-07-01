@@ -243,6 +243,7 @@ export default function App() {
           showTimelineDriverRadio={false}
           exportButtonLabel="Export Excel"
           maxAllowedStartTimes={resourceGuide.maxStartTimes}
+          allowShiftOverflow={false}
           onDateChange={handleResourceGuideDateChange}
           onExport={(payload) => exportResourceGuideWorkbook({
             ...payload,
