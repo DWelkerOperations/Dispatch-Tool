@@ -796,10 +796,8 @@ function commonAircraftCategory(flights: Flight[]): AircraftCategory {
   return categories.length === 1 ? categories[0] : "narrowbody";
 }
 
-function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, pairingStrategy?: PairingStrategy) {
-  const allowSiteShiftStretch = pairingStrategy?.allowUrgentPairings !== false
-    && pushes.length > 0
-    && pushes.every((push) => push.flights.every((flight) => siteRules(rules, flight.originAirport).allowShiftStretch));
+function assignUnlimitedResources(pushes: Push[], drivers: Driver[], helpers: Helper[], trucks: Truck[], rules: PlanningRules, _pairingStrategy?: PairingStrategy) {
+  const allowSiteShiftStretch = drivers.length > 0;
   const attempts = assignmentSorts.map((sortPushes) => (
     assignPushes(pushes, createDriverPool(drivers), createHelperPool(helpers), createTruckPool(trucks), [], rules, allowSiteShiftStretch, sortPushes)
   ));
@@ -950,11 +948,15 @@ function bestShiftResources(pool: ResourcePoolItem[], departure: number, returnT
 }
 
 function bestReusableResource(pool: ResourcePoolItem[], departure: number, returnTime: number, rules: PlanningRules, push: Push) {
-  const ready = pool
-    .filter((item) => item.availableAt <= departure && preservesOperationalBreak(item, departure, returnTime, rules, push))
-    .sort((a, b) => compareShiftResources(a, b, departure, rules, push));
+  const reusable = pool
+    .filter((item) => preservesOperationalBreak(item, Math.max(departure, item.availableAt), returnTime + Math.max(0, item.availableAt - departure), rules, push))
+    .sort((a, b) => {
+      const delayDiff = Math.max(0, a.availableAt - departure) - Math.max(0, b.availableAt - departure);
+      if (delayDiff !== 0) return delayDiff;
+      return compareShiftResources(a, b, departure, rules, push);
+    });
 
-  if (ready.length > 0) return ready[0];
+  if (reusable.length > 0) return reusable[0];
   return undefined;
 }
 
@@ -1379,9 +1381,11 @@ export function timeToMinutes(time: string) {
 }
 
 function minutesToTime(totalMinutes: number) {
-  const normalized = Math.max(0, totalMinutes);
-  const hours = Math.floor(normalized / 60);
-  const minutes = normalized % 60;
+  if (!Number.isFinite(totalMinutes) || !Number.isInteger(totalMinutes) || totalMinutes < 0) {
+    throw new Error(`Invalid minute value: ${totalMinutes}. Expected a non-negative whole number.`);
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 

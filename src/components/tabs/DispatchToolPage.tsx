@@ -118,7 +118,7 @@ export function DispatchToolPage({ flights = mockFlights, planningOperationType,
       </div>
       {result ? (
         <>
-          <ScheduleSummaryCards result={result} />
+          <ScheduleSummaryCards result={result} drivers={timelineDrivers} />
           <DispatcherTimeline
             flights={[]}
             drivers={timelineDrivers}

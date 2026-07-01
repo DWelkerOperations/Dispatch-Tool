@@ -15,199 +15,171 @@ import { exportResourceGuideWorkbook } from "./export/resourceGuideExport";
 import type { AirportCode, AppTab, FlightAssignment, OperationView, PlanningRules, ScheduleResult } from "./types/dispatch";
 import type { FlightTaskTypeChange } from "./utils/taskTypeUpdates";
 
+type PlannerTabId = Extract<AppTab, "planning" | "resource-guide" | "ord-planner">;
+type OrdPlannerStartTimeMode = "dynamic" | "fixed" | "fixed-resource";
+
+type PlannerState = {
+  airport: AirportCode;
+  date: string;
+  flights: FlightAssignment[];
+  fileName: string;
+  referenceScheduleId: string;
+  operationType: OperationView;
+  result: ScheduleResult | null;
+  maxStartTimes?: number;
+  startTimeMode?: OrdPlannerStartTimeMode;
+};
+
+const initialPlannerState: PlannerState = {
+  airport: ordJuneTripmasterDefaultAirport,
+  date: ordJuneTripmasterDefaultDate,
+  flights: ordJuneTripmasterFlights,
+  fileName: ordJuneTripmasterFileName,
+  referenceScheduleId: ordJuneTripmasterReferenceId,
+  operationType: "mainline",
+  result: null,
+};
+
+const initialPlanners: Record<PlannerTabId, PlannerState> = {
+  planning: initialPlannerState,
+  "resource-guide": {
+    ...initialPlannerState,
+    maxStartTimes: 12,
+  },
+  "ord-planner": {
+    ...initialPlannerState,
+    maxStartTimes: 12,
+    startTimeMode: "dynamic",
+  },
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("resource-guide");
-  const [planningAirport, setPlanningAirport] = useState<AirportCode>(ordJuneTripmasterDefaultAirport);
-  const [planningDate, setPlanningDate] = useState(ordJuneTripmasterDefaultDate);
-  const [planningFlights, setPlanningFlights] = useState<FlightAssignment[]>(ordJuneTripmasterFlights);
-  const [planningFileName, setPlanningFileName] = useState<string>(ordJuneTripmasterFileName);
-  const [planningReferenceScheduleId, setPlanningReferenceScheduleId] = useState(ordJuneTripmasterReferenceId);
-  const [planningOperationType, setPlanningOperationType] = useState<OperationView>("mainline");
-  const [planningResult, setPlanningResult] = useState<ScheduleResult | null>(null);
+  const [planners, setPlanners] = useState<Record<PlannerTabId, PlannerState>>(initialPlanners);
   const [activeRules, setActiveRules] = useState<PlanningRules>(defaultPlanningRules);
-  const [resourceGuideAirport, setResourceGuideAirport] = useState<AirportCode>(ordJuneTripmasterDefaultAirport);
-  const [resourceGuideDate, setResourceGuideDate] = useState(ordJuneTripmasterDefaultDate);
-  const [resourceGuideFlights, setResourceGuideFlights] = useState<FlightAssignment[]>(ordJuneTripmasterFlights);
-  const [resourceGuideFileName, setResourceGuideFileName] = useState<string>(ordJuneTripmasterFileName);
-  const [resourceGuideReferenceScheduleId, setResourceGuideReferenceScheduleId] = useState(ordJuneTripmasterReferenceId);
-  const [resourceGuideOperationType, setResourceGuideOperationType] = useState<OperationView>("mainline");
-  const [resourceGuideResult, setResourceGuideResult] = useState<ScheduleResult | null>(null);
-  const [resourceGuideMaxStartTimes, setResourceGuideMaxStartTimes] = useState(12);
-  const [ordPlannerAirport, setOrdPlannerAirport] = useState<AirportCode>(ordJuneTripmasterDefaultAirport);
-  const [ordPlannerDate, setOrdPlannerDate] = useState(ordJuneTripmasterDefaultDate);
-  const [ordPlannerFlights, setOrdPlannerFlights] = useState<FlightAssignment[]>(ordJuneTripmasterFlights);
-  const [ordPlannerFileName, setOrdPlannerFileName] = useState<string>(ordJuneTripmasterFileName);
-  const [ordPlannerReferenceScheduleId, setOrdPlannerReferenceScheduleId] = useState(ordJuneTripmasterReferenceId);
-  const [ordPlannerOperationType, setOrdPlannerOperationType] = useState<OperationView>("mainline");
-  const [ordPlannerResult, setOrdPlannerResult] = useState<ScheduleResult | null>(null);
-  const [ordPlannerMaxStartTimes, setOrdPlannerMaxStartTimes] = useState(12);
-  const [ordPlannerStartTimeMode, setOrdPlannerStartTimeMode] = useState<"dynamic" | "fixed" | "fixed-resource">("dynamic");
+  const activePlannerTab = isPlannerTab(activeTab) ? activeTab : "planning";
+  const planning = planners.planning;
+  const resourceGuide = planners["resource-guide"];
+  const ordPlanner = planners["ord-planner"];
   const planningVisibleFlights = useMemo(
-    () => planningFlights.filter((flight) => flightMatchesSelectedSchedule(flight, planningAirport, planningDate)),
-    [planningAirport, planningDate, planningFlights],
+    () => planning.flights.filter((flight) => flightMatchesSelectedSchedule(flight, planning.airport, planning.date)),
+    [planning.airport, planning.date, planning.flights],
   );
   const resourceGuideVisibleFlights = useMemo(
-    () => resourceGuideFlights.filter((flight) => flightMatchesSelectedSchedule(flight, resourceGuideAirport, resourceGuideDate)),
-    [resourceGuideAirport, resourceGuideDate, resourceGuideFlights],
+    () => resourceGuide.flights.filter((flight) => flightMatchesSelectedSchedule(flight, resourceGuide.airport, resourceGuide.date)),
+    [resourceGuide.airport, resourceGuide.date, resourceGuide.flights],
   );
   const ordPlannerVisibleFlights = useMemo(
-    () => ordPlannerFlights.filter((flight) => flightMatchesSelectedSchedule(flight, ordPlannerAirport, ordPlannerDate)),
-    [ordPlannerAirport, ordPlannerDate, ordPlannerFlights],
+    () => ordPlanner.flights.filter((flight) => flightMatchesSelectedSchedule(flight, ordPlanner.airport, ordPlanner.date)),
+    [ordPlanner.airport, ordPlanner.date, ordPlanner.flights],
   );
-  const activeSchedule = activeTab === "resource-guide"
-    ? { airport: resourceGuideAirport, date: resourceGuideDate, flights: resourceGuideFlights, visibleFlights: resourceGuideVisibleFlights, fileName: resourceGuideFileName, referenceScheduleId: resourceGuideReferenceScheduleId }
-    : activeTab === "ord-planner"
-      ? { airport: ordPlannerAirport, date: ordPlannerDate, flights: ordPlannerFlights, visibleFlights: ordPlannerVisibleFlights, fileName: ordPlannerFileName, referenceScheduleId: ordPlannerReferenceScheduleId }
-    : { airport: planningAirport, date: planningDate, flights: planningFlights, visibleFlights: planningVisibleFlights, fileName: planningFileName, referenceScheduleId: planningReferenceScheduleId };
+  const visibleFlightsByTab: Record<PlannerTabId, FlightAssignment[]> = {
+    planning: planningVisibleFlights,
+    "resource-guide": resourceGuideVisibleFlights,
+    "ord-planner": ordPlannerVisibleFlights,
+  };
+  const activeSchedule = {
+    ...planners[activePlannerTab],
+    visibleFlights: visibleFlightsByTab[activePlannerTab],
+  };
+
+  function updatePlanner(tabId: PlannerTabId, partial: Partial<PlannerState>) {
+    setPlanners((current) => ({
+      ...current,
+      [tabId]: {
+        ...current[tabId],
+        ...partial,
+      },
+    }));
+  }
 
   function handleScheduleImport(flights: FlightAssignment[], fileName: string, selectedDate?: string) {
     const firstImportedDate = selectedDate || flights.find((flight) => flight.departureDate)?.departureDate;
     const firstImportedAirport = flights.find((flight) => (!firstImportedDate || flight.departureDate === firstImportedDate) && flight.originAirport)?.originAirport
       ?? flights.find((flight) => flight.originAirport)?.originAirport;
-    if (activeTab === "resource-guide") {
-      setResourceGuideFlights(flights);
-      setResourceGuideFileName(fileName);
-      setResourceGuideReferenceScheduleId(ordJuneTripmasterReferenceId);
-      setResourceGuideResult(null);
-      if (firstImportedAirport) setResourceGuideAirport(firstImportedAirport);
-      if (firstImportedDate) setResourceGuideDate(firstImportedDate);
-      return;
-    }
-    if (activeTab === "ord-planner") {
-      setOrdPlannerFlights(flights);
-      setOrdPlannerFileName(fileName);
-      setOrdPlannerReferenceScheduleId(ordJuneTripmasterReferenceId);
-      setOrdPlannerResult(null);
-      setOrdPlannerAirport("ORD");
-      if (firstImportedDate) setOrdPlannerDate(firstImportedDate);
-      return;
-    }
-
-    setPlanningFlights(flights);
-    setPlanningFileName(fileName);
-    setPlanningReferenceScheduleId(ordJuneTripmasterReferenceId);
-    setPlanningResult(null);
-    if (firstImportedAirport) setPlanningAirport(firstImportedAirport);
-    if (firstImportedDate) setPlanningDate(firstImportedDate);
+    updatePlanner(activePlannerTab, {
+      flights,
+      fileName,
+      referenceScheduleId: ordJuneTripmasterReferenceId,
+      result: null,
+      ...(activePlannerTab === "ord-planner" ? { airport: "ORD" as AirportCode } : firstImportedAirport ? { airport: firstImportedAirport } : {}),
+      ...(firstImportedDate ? { date: firstImportedDate } : {}),
+    });
   }
 
   function handleScheduleClear() {
-    if (activeTab === "resource-guide") {
-      setResourceGuideFlights(ordJuneTripmasterFlights);
-      setResourceGuideFileName(ordJuneTripmasterFileName);
-      setResourceGuideReferenceScheduleId("");
-      setResourceGuideAirport(ordJuneTripmasterDefaultAirport);
-      setResourceGuideDate(ordJuneTripmasterDefaultDate);
-      setResourceGuideResult(null);
-      return;
-    }
-    if (activeTab === "ord-planner") {
-      setOrdPlannerFlights(ordJuneTripmasterFlights);
-      setOrdPlannerFileName(ordJuneTripmasterFileName);
-      setOrdPlannerReferenceScheduleId("");
-      setOrdPlannerAirport(ordJuneTripmasterDefaultAirport);
-      setOrdPlannerDate(ordJuneTripmasterDefaultDate);
-      setOrdPlannerResult(null);
-      return;
-    }
-
-    setPlanningFlights(ordJuneTripmasterFlights);
-    setPlanningFileName(ordJuneTripmasterFileName);
-    setPlanningReferenceScheduleId("");
-    setPlanningAirport(ordJuneTripmasterDefaultAirport);
-    setPlanningDate(ordJuneTripmasterDefaultDate);
-    setPlanningResult(null);
+    updatePlanner(activePlannerTab, {
+      flights: ordJuneTripmasterFlights,
+      fileName: ordJuneTripmasterFileName,
+      referenceScheduleId: "",
+      airport: ordJuneTripmasterDefaultAirport,
+      date: ordJuneTripmasterDefaultDate,
+      result: null,
+    });
   }
 
   function handleAirportChange(airport: AirportCode) {
-    if (activeTab === "resource-guide") {
-      setResourceGuideAirport(airport);
-      setResourceGuideResult(null);
-      return;
-    }
-    if (activeTab === "ord-planner") {
-      setOrdPlannerAirport(airport);
-      setOrdPlannerResult(null);
-      return;
-    }
-
-    setPlanningAirport(airport);
-    setPlanningResult(null);
+    updatePlanner(activePlannerTab, { airport, result: null });
   }
 
   function handleReferenceScheduleLoad(schedule: ReferenceSchedule) {
-    if (activeTab === "resource-guide") {
-      setResourceGuideFlights(schedule.flights);
-      setResourceGuideFileName(schedule.fileName);
-      setResourceGuideReferenceScheduleId(schedule.id);
-      setResourceGuideAirport(schedule.airport);
-      setResourceGuideDate(schedule.date);
-      setResourceGuideResult(null);
-      return;
-    }
-    if (activeTab === "ord-planner") {
-      setOrdPlannerFlights(schedule.flights);
-      setOrdPlannerFileName(schedule.fileName);
-      setOrdPlannerReferenceScheduleId(schedule.id);
-      setOrdPlannerAirport(schedule.airport);
-      setOrdPlannerDate(schedule.date);
-      setOrdPlannerResult(null);
-      return;
-    }
-
-    setPlanningFlights(schedule.flights);
-    setPlanningFileName(schedule.fileName);
-    setPlanningReferenceScheduleId(schedule.id);
-    setPlanningAirport(schedule.airport);
-    setPlanningDate(schedule.date);
-    setPlanningResult(null);
+    updatePlanner(activePlannerTab, {
+      flights: schedule.flights,
+      fileName: schedule.fileName,
+      referenceScheduleId: schedule.id,
+      airport: schedule.airport,
+      date: schedule.date,
+      result: null,
+    });
   }
 
   function handleDateChange(date: string) {
-    setPlanningDate(date);
-    setPlanningResult(null);
+    updatePlanner("planning", { date, result: null });
   }
 
   function handleResourceGuideDateChange(date: string) {
-    setResourceGuideDate(date);
-    setResourceGuideResult(null);
+    updatePlanner("resource-guide", { date, result: null });
   }
 
   function handleResourceGuideMaxStartTimesChange(value: number) {
-    setResourceGuideMaxStartTimes(value);
-    setResourceGuideResult(null);
+    updatePlanner("resource-guide", { maxStartTimes: value, result: null });
   }
 
   function handleOrdPlannerDateChange(date: string) {
-    setOrdPlannerDate(date);
-    setOrdPlannerResult(null);
+    updatePlanner("ord-planner", { date, result: null });
   }
 
   function handleOrdPlannerMaxStartTimesChange(value: number) {
-    setOrdPlannerMaxStartTimes(value);
-    setOrdPlannerResult(null);
+    updatePlanner("ord-planner", { maxStartTimes: value, result: null });
   }
 
-  function handleOrdPlannerStartTimeModeChange(mode: "dynamic" | "fixed" | "fixed-resource") {
-    setOrdPlannerStartTimeMode(mode);
-    setOrdPlannerResult(null);
+  function handleOrdPlannerStartTimeModeChange(mode: OrdPlannerStartTimeMode) {
+    updatePlanner("ord-planner", { startTimeMode: mode, result: null });
   }
 
-  function handleOperationTypeChange(operationType: OperationView) {
-    setPlanningOperationType(operationType);
+  function handleOperationTypeChange(tabId: PlannerTabId, operationType: OperationView) {
+    updatePlanner(tabId, { operationType });
   }
 
   function handlePlanningFlightTaskTypeChange(change: FlightTaskTypeChange) {
-    setPlanningFlights((currentFlights) => currentFlights.map((flight) => (
-      flight.id === change.flightId ? { ...flight, serviceType: change.serviceType, edited: true } : flight
-    )));
+    setPlanners((current) => ({
+      ...current,
+      planning: {
+        ...current.planning,
+        flights: current.planning.flights.map((flight) => (
+          flight.id === change.flightId ? { ...flight, serviceType: change.serviceType, edited: true } : flight
+        )),
+      },
+    }));
   }
 
   function handleRulesChange(nextRules: PlanningRules) {
     setActiveRules(nextRules);
-    setPlanningResult(null);
-    setResourceGuideResult(null);
-    setOrdPlannerResult(null);
+    setPlanners((current) => ({
+      planning: { ...current.planning, result: null },
+      "resource-guide": { ...current["resource-guide"], result: null },
+      "ord-planner": { ...current["ord-planner"], result: null },
+    }));
   }
 
   return (
@@ -228,10 +200,10 @@ export default function App() {
       {activeTab === "planning" && (
         <PlanningToolPage
           flights={planningVisibleFlights}
-          operationType={planningOperationType}
+          operationType={planning.operationType}
           rules={activeRules}
-          result={planningResult}
-          selectedDate={planningDate}
+          result={planning.result}
+          selectedDate={planning.date}
           resourcePlanPosition="above-timeline"
           disallowCriticalPairings
           enforcePairingQuality
@@ -242,24 +214,24 @@ export default function App() {
           showTimelineDriverRadio={false}
           onDateChange={handleDateChange}
           onFlightTaskTypeChange={handlePlanningFlightTaskTypeChange}
-          onOperationTypeChange={handleOperationTypeChange}
-          onResultChange={setPlanningResult}
+          onOperationTypeChange={(operationType) => handleOperationTypeChange("planning", operationType)}
+          onResultChange={(result) => updatePlanner("planning", { result })}
         />
       )}
       {activeTab === "resource-guide" && (
         <PlanningToolPage
           flights={resourceGuideVisibleFlights}
-          operationType={resourceGuideOperationType}
+          operationType={resourceGuide.operationType}
           rules={activeRules}
-          result={resourceGuideResult}
-          selectedDate={resourceGuideDate}
+          result={resourceGuide.result}
+          selectedDate={resourceGuide.date}
           title="Resource Guide"
           description="Import an Excel flight schedule, apply the thumb rules, and create optimized driver, helper, and truck resource guidance."
           readyTitle="Ready to Build Resource Guidance"
-          readyDescription={`${resourceGuideVisibleFlights.length} flights are loaded for ${resourceGuideDate}. Import the schedule you want to plan, confirm the site and date, then create guidance to see the recommended resource levels and start waves.`}
+          readyDescription={`${resourceGuideVisibleFlights.length} flights are loaded for ${resourceGuide.date}. Import the schedule you want to plan, confirm the site and date, then create guidance to see the recommended resource levels and start waves.`}
           createButtonLabel="Create Guidance"
           assumptionTitle="Guidelines Applied"
-          assumptionDescription={`This guidance uses the loaded flight schedule as the demand source, not an existing driver schedule. It plans mainline and express independently unless the active site's rules define a shared resource pool, then shows ${resourceGuideOperationType === "all" ? "the combined total" : `the ${resourceGuideOperationType} view`}. It protects required completion times, drive time, food safety windows, and a 30-minute lunch gap with no protection window, then chooses up to ${resourceGuideMaxStartTimes} hour or half-hour start waves.`}
+          assumptionDescription={`This guidance uses the loaded flight schedule as the demand source, not an existing driver schedule. It plans mainline and express independently unless the active site's rules define a shared resource pool, then shows ${resourceGuide.operationType === "all" ? "the combined total" : `the ${resourceGuide.operationType} view`}. It protects required completion times, drive time, food safety windows, and a 30-minute lunch gap with no protection window, then chooses up to ${resourceGuide.maxStartTimes ?? 12} hour or half-hour start waves.`}
           resourcePlanPosition="above-timeline"
           resourcePlanTitle="Resource Guidance"
           resourcePlanDescription="Recommended driver, helper, and truck needs by start wave."
@@ -270,34 +242,34 @@ export default function App() {
           timelineDriverLabelMode="sequential"
           showTimelineDriverRadio={false}
           exportButtonLabel="Export Excel"
-          maxAllowedStartTimes={resourceGuideMaxStartTimes}
+          maxAllowedStartTimes={resourceGuide.maxStartTimes}
           onDateChange={handleResourceGuideDateChange}
           onExport={(payload) => exportResourceGuideWorkbook({
             ...payload,
-            sourceFileName: resourceGuideFileName,
+            sourceFileName: resourceGuide.fileName,
           })}
           onMaxAllowedStartTimesChange={handleResourceGuideMaxStartTimesChange}
-          onOperationTypeChange={setResourceGuideOperationType}
-          onResultChange={setResourceGuideResult}
+          onOperationTypeChange={(operationType) => handleOperationTypeChange("resource-guide", operationType)}
+          onResultChange={(result) => updatePlanner("resource-guide", { result })}
         />
       )}
       {activeTab === "ord-planner" && (
         <PlanningToolPage
           flights={ordPlannerVisibleFlights}
-          operationType={ordPlannerOperationType}
+          operationType={ordPlanner.operationType}
           rules={activeRules}
-          result={ordPlannerResult}
-          selectedDate={ordPlannerDate}
+          result={ordPlanner.result}
+          selectedDate={ordPlanner.date}
           title="ORD Planner"
           description="Import the UA turns report for ORD to plan from outbound flight demand, aircraft type, strip requests, and planned inbound arrival time."
           readyTitle="Ready to Build ORD Guidance"
-          readyDescription={`${ordPlannerVisibleFlights.length} ORD flights are loaded for ${ordPlannerDate}. Import the UA turns report, pick the date, then create guidance to use planned inbound arrivals as the earliest catering-ready time.`}
+          readyDescription={`${ordPlannerVisibleFlights.length} ORD flights are loaded for ${ordPlanner.date}. Import the UA turns report, pick the date, then create guidance to use planned inbound arrivals as the earliest catering-ready time.`}
           createButtonLabel="Create ORD Guidance"
           assumptionTitle="UA Turns Logic"
-          assumptionDescription={ordPlannerAssumptionDescription(ordPlannerStartTimeMode, ordPlannerMaxStartTimes)}
+          assumptionDescription={ordPlannerAssumptionDescription(ordPlanner.startTimeMode ?? "dynamic", ordPlanner.maxStartTimes ?? 12)}
           resourcePlanPosition="above-timeline"
           resourcePlanTitle="ORD Resource Guidance"
-          resourcePlanDescription={ordPlannerResourcePlanDescription(ordPlannerStartTimeMode)}
+          resourcePlanDescription={ordPlannerResourcePlanDescription(ordPlanner.startTimeMode ?? "dynamic")}
           keepExceptionPushes
           showPairingQuality
           showRiskDefinitions
@@ -306,31 +278,31 @@ export default function App() {
           exportButtonLabel="Export Excel"
           fixedStartResources={ordGoalStartResources}
           fixedStartTimes={ordFixedStartTimes}
-          maxAllowedStartTimes={ordPlannerMaxStartTimes}
-          startTimeMode={ordPlannerStartTimeMode}
+          maxAllowedStartTimes={ordPlanner.maxStartTimes}
+          startTimeMode={ordPlanner.startTimeMode}
           onDateChange={handleOrdPlannerDateChange}
           onExport={(payload) => exportResourceGuideWorkbook({
             ...payload,
-            sourceFileName: ordPlannerFileName,
+            sourceFileName: ordPlanner.fileName,
           })}
           onMaxAllowedStartTimesChange={handleOrdPlannerMaxStartTimesChange}
-          onOperationTypeChange={setOrdPlannerOperationType}
-          onResultChange={setOrdPlannerResult}
+          onOperationTypeChange={(operationType) => handleOperationTypeChange("ord-planner", operationType)}
+          onResultChange={(result) => updatePlanner("ord-planner", { result })}
           onStartTimeModeChange={handleOrdPlannerStartTimeModeChange}
         />
       )}
       {activeTab === "dispatch" && (
         <DispatchToolPage
           flights={planningVisibleFlights}
-          planningOperationType={planningOperationType}
-          planningResult={planningResult}
+          planningOperationType={planning.operationType}
+          planningResult={planning.result}
           rules={activeRules}
-          selectedDate={planningDate}
+          selectedDate={planning.date}
           onDateChange={handleDateChange}
         />
       )}
-      {activeTab === "staffing" && <StaffingPage activeAirport={planningAirport} activeDate={planningDate} onDateChange={handleDateChange} />}
-      {activeTab === "fleet" && <FleetPage activeAirport={planningAirport} />}
+      {activeTab === "staffing" && <StaffingPage activeAirport={planning.airport} activeDate={planning.date} onDateChange={handleDateChange} />}
+      {activeTab === "fleet" && <FleetPage activeAirport={planning.airport} />}
       {activeTab === "exceptions" && <ExceptionsPage />}
       {activeTab === "tour-sheet" && <TourSheetPage />}
       {activeTab === "dashboard" && <DashboardPage />}
@@ -372,4 +344,8 @@ function ordPlannerResourcePlanDescription(mode: "dynamic" | "fixed" | "fixed-re
 
 function flightMatchesSelectedSchedule(flight: FlightAssignment, airport: AirportCode, date: string) {
   return flight.originAirport === airport && flight.departureDate === date;
+}
+
+function isPlannerTab(tab: AppTab): tab is PlannerTabId {
+  return tab === "planning" || tab === "resource-guide" || tab === "ord-planner";
 }

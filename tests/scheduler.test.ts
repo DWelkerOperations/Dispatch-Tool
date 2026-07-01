@@ -141,6 +141,19 @@ describe("scheduler", () => {
     assert.equal(result.pushes[0]?.serviceEvents[0]?.riskStatus, "unknown-aircraft");
   });
 
+  it("rejects schedule math that would create negative clock times", () => {
+    assert.throws(
+      () => createPlanningSchedule(
+        [flight({ etd: "02:00" })],
+        baseDrivers,
+        baseHelpers,
+        baseTrucks,
+        { rules: planningRules },
+      ),
+      /Invalid minute value: -/,
+    );
+  });
+
   it("reports resource shortages in dispatch mode", () => {
     const result = createDispatchSchedule(
       [flight({ aircraft: "737", etd: "10:00" })],
@@ -154,6 +167,30 @@ describe("scheduler", () => {
     assert.ok(result.exceptions.some((item) => item.cause === "driver-shortage"));
     assert.ok(result.exceptions.some((item) => item.cause === "truck-shortage"));
     assert.ok(result.summary.unscheduledFlights > 0);
+  });
+
+  it("stretches constrained dispatch headcount into overtime instead of dropping paired flights", () => {
+    const constrainedDrivers: Driver[] = [
+      { id: "d1", name: "Driver 1", truck: "T1", radio: "R1", shiftStart: "06:00", shiftEnd: "14:00" },
+    ];
+    const constrainedHelpers: Helper[] = [
+      { id: "h1", name: "Helper 1", shiftStart: "06:00", shiftEnd: "14:00" },
+    ];
+    const result = createDispatchSchedule(
+      [
+        flight({ id: "f1", flightNumber: "UA100", aircraft: "737", etd: "10:00", gate: "A1" }),
+        flight({ id: "f2", flightNumber: "UA101", aircraft: "737", etd: "16:00", gate: "A2" }),
+      ],
+      constrainedDrivers,
+      constrainedHelpers,
+      baseTrucks,
+      { availableDrivers: 1, availableHelpers: 1, availableTrucks: 1 },
+      { rules: planningRules },
+    );
+
+    assert.equal(result.summary.unscheduledFlights, 0);
+    assert.equal(result.pushes.every((push) => push.driverId === "d1"), true);
+    assert.ok(result.pushes.some((push) => push.riskFlags.includes("Shift exceeds standard shift span")));
   });
 
   it("keeps widebody flights as standalone protected pushes", () => {

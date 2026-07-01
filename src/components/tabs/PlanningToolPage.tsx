@@ -4,7 +4,7 @@ import { mockFlights } from "../../data/mockFlights";
 import { planningRules } from "../../data/planningRules";
 import { mockTrucks } from "../../data/mockResources";
 import { createManualPlanState, moveFlightToPush, movePushByMinutes, resetManualPlan, undoManualMove } from "../../engine/manualControl";
-import { createPlanningSchedule, enforceUrgentPairingLimit, filterScheduleResultByOperation, rejectCriticalPairings, rejectUnassignedPushes, timeToMinutes } from "../../engine/scheduler";
+import { createPlanningSchedule, filterScheduleResultByOperation, timeToMinutes } from "../../engine/scheduler";
 import { categoryForAircraft } from "../../import/aircraftMap";
 import type { Driver, FlightAssignment, Helper, ManualPlanState, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
 import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
@@ -81,10 +81,7 @@ export function PlanningToolPage({
   resourcePlanPosition = "below-timeline",
   resourcePlanTitle = "Resource Plan",
   resourcePlanDescription = "Driver starts by shift wave.",
-  disallowCriticalPairings = false,
-  enforcePairingQuality = false,
   preventUrgentPairings = false,
-  keepExceptionPushes = false,
   showPairingQuality = false,
   showIterationControls = false,
   showRiskDefinitions = false,
@@ -117,7 +114,6 @@ export function PlanningToolPage({
     [iterationSettings.maxFlightsPerPush, rules, showIterationControls],
   );
   const urgentPairingLimit = showIterationControls && iterationSettings.allowUrgentPairings ? iterationSettings.urgentPairingLimitPercent : strictUrgentPairingLimitPercent;
-  const shouldEnforceUrgentPairingLimit = enforcePairingQuality || preventUrgentPairings;
   const targetThreeFlightPairingPercent = showIterationControls ? iterationSettings.targetThreeFlightPairingPercent : standardThreeFlightPairingTargetPercent;
   const isFixedStartTimeMode = startTimeMode === "fixed";
   const isFixedResourceMode = startTimeMode === "fixed-resource";
@@ -150,19 +146,15 @@ export function PlanningToolPage({
       : createPlanningResources(flights, runRules, shiftStartIncrementMinutes);
     const maxStartTimes = options?.maxStartTimes ?? maxAllowedStartTimes;
 
-    const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks, enforceQuality = true) => {
+    const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks) => {
       const nextResult = createPlanningSchedule(flights, drivers, helpers, trucks, {
         rules: runRules,
         pairingStrategy: { targetThreeFlightPairingPercent, allowUrgentPairings: !preventUrgentPairings },
       });
-      const criticalSafeResult = disallowCriticalPairings ? rejectCriticalPairings(nextResult) : nextResult;
-      const urgentSafeResult = shouldEnforceUrgentPairingLimit && enforceQuality
-        ? enforceUrgentPairingLimit(criticalSafeResult, urgentPairingLimit)
-        : criticalSafeResult;
-      return keepExceptionPushes ? urgentSafeResult : rejectUnassignedPushes(urgentSafeResult);
+      return nextResult;
     };
 
-    const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks, false);
+    const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks);
     const selectedStartTimes = (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
       ? fixedStartTimes
       : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
@@ -652,7 +644,8 @@ function PairingQualityPanel({
     ? Math.round((threeFlightPairingCount / result.summary.totalPushes) * 100)
     : 0;
   const threeFlightTargetMet = targetThreeFlightPairingPercent === 0 || threeFlightPairingPercent >= targetThreeFlightPairingPercent;
-  const operationallyClean = urgentPercent <= urgentPairingLimitPercent && coverage.exceptionFlights.length === 0 && coverage.missingFlights.length === 0;
+  const allFlightsPaired = coverage.scheduledFlights === coverage.expectedFlights && coverage.missingFlights.length === 0;
+  const operationallyClean = urgentPercent <= urgentPairingLimitPercent && coverage.exceptionFlights.length === 0 && allFlightsPaired;
   const panelTone = operationallyClean
     ? threeFlightTargetMet
       ? "border-emerald-200 bg-emerald-50/60"
@@ -661,9 +654,7 @@ function PairingQualityPanel({
   const urgentTone = urgentPercent <= urgentPairingLimitPercent
     ? "border-emerald-200 bg-white text-emerald-700"
     : "border-red-200 bg-white text-red-700";
-  const publishablePercent = coverage.expectedFlights > 0
-    ? Math.round((coverage.scheduledFlights / coverage.expectedFlights) * 100)
-    : 100;
+  const pairedLabel = allFlightsPaired ? "All paired" : `${coverage.scheduledFlights}/${coverage.expectedFlights} paired`;
 
   return (
     <Panel className={`p-4 ${panelTone}`}>
@@ -673,13 +664,13 @@ function PairingQualityPanel({
           <p className="mt-1 text-sm text-slate-600">Compare coverage, urgent timing, and 3-flight pairing yield for this iteration.</p>
         </div>
         <div className="flex items-center gap-2">
-          <MiniMetric label="Scheduled Cleanly" value={`${coverage.scheduledFlights}/${coverage.expectedFlights}`} />
+          <MiniMetric label="Paired Flights" value={`${coverage.scheduledFlights}/${coverage.expectedFlights}`} />
           <MiniMetric label="Exception Flights" value={coverage.exceptionFlights.length} />
           <MiniMetric label="Missing Flights" value={coverage.missingFlights.length} />
           <MiniMetric label="Urgent Pairings" value={result.summary.urgentPushes} />
           <MiniMetric label="3-Flight Pairings" value={`${threeFlightPairingPercent}%`} />
           <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${coverage.exceptionFlights.length === 0 && coverage.missingFlights.length === 0 ? "border-emerald-200 bg-white text-emerald-700" : "border-red-200 bg-white text-red-700"}`}>
-            {publishablePercent}% clean
+            {pairedLabel}
           </div>
           <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${urgentTone}`}>
             {urgentPercent}% urgent
@@ -688,7 +679,7 @@ function PairingQualityPanel({
       </div>
       {coverage.exceptionFlights.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700">
-          Not fully publishable: {coverage.exceptionFlights.length} flight{coverage.exceptionFlights.length === 1 ? "" : "s"} are in exceptions, so the driver count reflects only the work the model could staff cleanly.
+          Paired with exceptions: {coverage.exceptionFlights.length} flight{coverage.exceptionFlights.length === 1 ? "" : "s"} need timing or resource review, but they remain in the plan.
         </div>
       )}
       {coverage.missingFlights.length > 0 && (
@@ -718,7 +709,7 @@ function scheduleCoverageForView(result: ScheduleResult, flights: FlightAssignme
 
   return {
     expectedFlights: expectedFlights.length,
-    scheduledFlights: expectedFlights.filter((flight) => plannedFlightIds.has(flight.id) && !exceptionFlightIds.has(flight.id)).length,
+    scheduledFlights: expectedFlights.filter((flight) => plannedFlightIds.has(flight.id)).length,
     exceptionFlights: expectedFlights.filter((flight) => exceptionFlightIds.has(flight.id)),
     missingFlights: expectedFlights.filter((flight) => !plannedFlightIds.has(flight.id) && !exceptionFlightIds.has(flight.id)),
   };
