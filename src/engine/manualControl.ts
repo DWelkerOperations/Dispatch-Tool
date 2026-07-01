@@ -279,7 +279,7 @@ function recalculatePush(
     riskFlags: flags,
     riskSeverity: severity,
     pairingScore: flights.length * 100 - idleMinutes - flags.length * 50,
-    explanation: `${originalPush.explanation} Manual beta adjustment recalculated this push.`,
+    explanation: `${originalPush.explanation} Manual adjustment recalculated this push.`,
     exceptionFlags: flags,
     manualStart: minutesToTime(options.manualKitchenDeparture),
     manualEnd: minutesToTime(returnKitchen + kitchenUnloadMinutes),
