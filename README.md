@@ -53,13 +53,13 @@ This app deploys to GitHub Pages from the `main` branch with the workflow in `.g
 Expected public URL after Pages is enabled:
 
 ```text
-https://dwelker123-glitch.github.io/Dispatch-Tool/
+https://dwelkeroperations.github.io/Dispatch-Tool/
 ```
 
 Expected beta URL when the `v1.1Beta` branch exists:
 
 ```text
-https://dwelker123-glitch.github.io/Dispatch-Tool/v1.1Beta/
+https://dwelkeroperations.github.io/Dispatch-Tool/v1.1Beta/
 ```
 
 ### v1.1Beta manual control
