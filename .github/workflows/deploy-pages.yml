@@ -117,7 +117,7 @@ jobs:
         run: pnpm build
         env:
           GITHUB_PAGES: "true"
-          APP_BASE_PATH: "/Dispatch-Tool/dispatch-tool-beta/"
+          APP_BASE_PATH: "/Resource-Planning/dispatch-tool-beta/"
           APP_VARIANT: "dispatch-tool-beta"
 
       - name: Assemble Pages artifact
