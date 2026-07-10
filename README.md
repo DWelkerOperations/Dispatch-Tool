@@ -53,19 +53,19 @@ This app deploys to GitHub Pages from the `main` branch with the workflow in `.g
 Expected public URL after Pages is enabled:
 
 ```text
-https://dwelkeroperations.github.io/Dispatch-Tool/
+https://dwelkeroperations.github.io/Resource-Planning/
 ```
 
 Expected Dispatch Tool Beta URL when the `v1.1Beta` branch exists:
 
 ```text
-https://dwelkeroperations.github.io/Dispatch-Tool/dispatch-tool-beta/
+https://dwelkeroperations.github.io/Resource-Planning/dispatch-tool-beta/
 ```
 
-Legacy beta URL:
+Legacy beta URL under the Resource Planning project path:
 
 ```text
-https://dwelkeroperations.github.io/Dispatch-Tool/v1.1Beta/
+https://dwelkeroperations.github.io/Resource-Planning/v1.1Beta/
 ```
 
 ### v1.1Beta manual control
@@ -83,7 +83,8 @@ Deployment behavior:
 - Viewers do not need a GitHub account or GitHub login.
 - The stable shared page updates only after code is committed and pushed to `main`.
 - The beta page updates after code is committed and pushed to `v1.1Beta`.
-- The GitHub Actions workflow installs dependencies, runs typecheck/lint/audit/tests, builds stable Resource Planning with the `/Dispatch-Tool/` base path, builds Dispatch Tool Beta with the `/Dispatch-Tool/dispatch-tool-beta/` base path when the beta branch exists, and publishes both into one Pages artifact. The legacy `/Dispatch-Tool/v1.1Beta/` URL is also retained as a beta alias.
+- The GitHub Actions workflow installs dependencies, runs typecheck/lint/audit/tests, builds stable Resource Planning with the `/Resource-Planning/` base path, builds Dispatch Tool Beta with the `/Resource-Planning/dispatch-tool-beta/` base path when the beta branch exists, and publishes both into one Pages artifact. The legacy `/Resource-Planning/v1.1Beta/` URL is also retained as a beta alias.
+- Old `/Dispatch-Tool/` GitHub Pages links should be treated as legacy links and redirected to `/Resource-Planning/` through the `DWelkerOperations.github.io` Pages fallback.
 - Use `workflow_dispatch` from GitHub Actions if a manual redeploy of the current `main` commit is needed.
 
 One-time GitHub repository setup:
