@@ -12,6 +12,8 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 
 - React, TypeScript, and Tailwind CSS.
 - Excel schedule import for the active planning file.
+- Volare actuals import with explicit report-month review and scheduled-versus-actual comparison.
+- Current SkyChefs branding using the approved Pride Red wordmark.
 - Thumb-rule driven resource guidance and pairing quality checks.
 - No backend, database, authentication, or live dispatch workflow yet.
 - GitHub Pages deployment from `main` through GitHub Actions.
@@ -25,6 +27,8 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 
 - Resource Guide: imported schedule, applied thumb rules, recommended resource starts, pairing quality, timing key, and planning timeline.
 - Planning Tool: driver rows, shift times, timeline pucks, hover details, and pairing output.
+- Retrospective: scheduled-versus-actual planning, delay summary, fixed-resource coverage, and operating-day comparison.
+- ORD Planner: UA turns planning with dynamic, editable fixed, and Goal-staffing start waves.
 - Dispatch Tool: load planning results or recalculate pairings from available driver/helper/truck counts.
 - Staffing: sample CDL roster and shift review.
 - Fleet: sample fleet master list and status filters.
@@ -46,21 +50,26 @@ Build a modern, frontend-only prototype for airline catering dispatch and transp
 
 ## Near-Term Priorities
 
-1. Improve resource guide usability.
+1. Stabilize retrospective planning.
+   - Keep historical month/year selection explicit and deterministic.
+   - Preserve operating-day offsets across midnight.
+   - Report fixed-resource shortages without delaying work beyond the supported operating day.
+
+2. Improve resource guide usability.
    - Make shift, off-shift, overtime, lunch, edited flights, and unplanned work visually obvious.
    - Keep the grid dense enough for real planning review.
 
-2. Strengthen imported data handling.
+3. Strengthen imported data handling.
    - Keep driver, truck, radio, shift, flight, assignment, lunch, and exception fields easy to understand.
    - Keep workbook file size, type, sheet-count, and row-count guardrails covered by tests.
    - Avoid backend-style complexity until the planning workflow is clearer.
 
-3. Add planning workflow polish.
+4. Add planning workflow polish.
    - Improve hover details.
    - Add selected flight state.
    - Add simple filters only if they support resource planning review.
 
-4. Prepare for real data later.
+5. Prepare for real data later.
    - Document import fields.
    - Keep all data structures typed.
    - Do not add a database or API until the static workflow is validated.

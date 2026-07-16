@@ -128,7 +128,7 @@ export function DispatcherTimeline({
             <span className="rounded-full bg-red-50 px-2.5 py-1 text-red-700">Overflow visible</span>
           </div>
         </div>
-        <TimelineRiskNotice watch={riskCounts.watch} urgent={riskCounts.urgent} critical={riskCounts.critical} />
+        <TimelineRiskNotice watch={riskCounts.watch} urgent={riskCounts.urgent} critical={riskCounts.critical} elevatedPairings={elevatedPairingCount(pushes)} />
         {onTaskTypeChange && <TaskTypeDropZoneBar />}
         <TimelineLegend />
         <div className="overflow-auto">
@@ -254,21 +254,24 @@ function TaskTypeDropZone({ serviceType }: { serviceType: ServiceType }) {
   );
 }
 
-function TimelineRiskNotice({ watch, urgent, critical }: { watch: number; urgent: number; critical: number }) {
+function elevatedPairingCount(pushes: Push[]) {
+  return pushes.filter((push) => push.flights.length > 1 && push.riskSeverity !== "normal").length;
+}
+
+function TimelineRiskNotice({ watch, urgent, critical, elevatedPairings }: { watch: number; urgent: number; critical: number; elevatedPairings: number }) {
   const total = watch + urgent + critical;
   if (total === 0) return null;
 
-  const elevated = critical + urgent;
-  const tone = elevated > 0
+  const tone = elevatedPairings > 0
     ? "border-red-200 bg-red-50 text-red-800"
     : "border-amber-200 bg-amber-50 text-amber-800";
 
   return (
     <div className={`flex items-center justify-between gap-3 border-b px-5 py-2 text-xs font-medium ${tone}`}>
       <span>
-        {elevated > 0 ? "Action needed" : "Watch items"}: {critical} critical · {urgent} urgent · {watch} watch push{total === 1 ? "" : "es"}
+        Timing flags: {critical} critical · {urgent} urgent · {watch} watch push{total === 1 ? "" : "es"} · {elevatedPairings} elevated pairing{elevatedPairings === 1 ? "" : "s"}
       </span>
-      <span className="text-[11px] opacity-80">Outlined blocks show timing, coverage, aircraft, or shift-risk exceptions.</span>
+      <span className="text-[11px] opacity-80">Extra staffing fixes open work; timing flags can remain on standalone flights already inside cutoff windows.</span>
     </div>
   );
 }

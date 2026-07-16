@@ -87,6 +87,85 @@ describe("manual planning control", () => {
     assert.equal(next.pushOverrides[push.id]?.modifiedByManualControl, true);
   });
 
+  it("recomputes summary risk counts after a horizontal push move", () => {
+    const generated = planForManualControl();
+    const state = createManualPlanState(generated);
+    const push = state.result.pushes[0];
+    assert.ok(push);
+    assert.equal(generated.summary.criticalPushes, 0);
+
+    const next = movePushByMinutes(state, push.id, 60, planningRules);
+    const criticalPushes = next.result.pushes.filter((item) => item.riskSeverity === "critical").length;
+
+    assert.ok(criticalPushes > generated.summary.criticalPushes);
+    assert.equal(next.result.summary.criticalPushes, criticalPushes);
+    assert.equal(next.result.summary.watchPushes, next.result.pushes.filter((item) => item.riskSeverity === "watch").length);
+    assert.equal(next.result.summary.urgentPushes, next.result.pushes.filter((item) => item.riskSeverity === "urgent").length);
+  });
+
+  it("detects overlap when pushes share one driver from a multi-driver assignment", () => {
+    const generated = planForManualControl();
+    const firstPush = generated.pushes[0];
+    const secondPush = generated.pushes[1];
+    assert.ok(firstPush);
+    assert.ok(secondPush);
+
+    firstPush.driverId = "d1 + d2";
+    firstPush.truckId = "t1";
+    secondPush.driverId = "d2";
+    secondPush.truckId = "t2";
+
+    const next = movePushByMinutes(createManualPlanState(generated), secondPush.id, -20, planningRules);
+    const nextFirst = next.result.pushes.find((push) => push.id === firstPush.id);
+    const nextSecond = next.result.pushes.find((push) => push.id === secondPush.id);
+
+    assert.ok(nextFirst);
+    assert.ok(nextSecond);
+    assert.ok(nextFirst.manualExceptionFlags?.includes("driver-truck-overlap"));
+    assert.ok(nextSecond.manualExceptionFlags?.includes("driver-truck-overlap"));
+    assert.equal(nextFirst.riskSeverity, "critical");
+    assert.equal(nextSecond.riskSeverity, "critical");
+    assert.equal(next.result.summary.criticalPushes, 2);
+  });
+
+  it("applies site overrides case-insensitively during manual recalculation", () => {
+    const generated = createPlanningSchedule(
+      [flight({ id: "f-lowercase-site", originAirport: "ord", etd: "12:00" })],
+      drivers,
+      helpers,
+      trucks,
+      { rules: planningRules, operationType: "mainline" },
+    );
+    const push = generated.pushes[0];
+    assert.ok(push);
+
+    const next = movePushByMinutes(createManualPlanState(generated), push.id, 5, planningRules);
+    const moved = next.result.pushes.find((item) => item.id === push.id);
+
+    assert.ok(moved);
+    assert.equal(minutesBetween(moved.kitchenDepartureTime, moved.arriveFirstGateTime), planningRules.siteOverrides?.ORD?.driveOutMinutes);
+  });
+
+  it("keeps canonical 757 service duration for airline-specific aircraft codes", () => {
+    const generated = createPlanningSchedule(
+      [flight({ id: "f-75b", aircraft: "75B", etd: "12:00" })],
+      drivers,
+      helpers,
+      trucks,
+      { rules: planningRules, operationType: "mainline" },
+    );
+    const push = generated.pushes[0];
+    assert.ok(push);
+    assert.equal(push.serviceEvents[0]?.serviceDurationMinutes, 40);
+
+    const next = movePushByMinutes(createManualPlanState(generated), push.id, 5, planningRules);
+    const movedEvent = next.result.pushes.find((item) => item.id === push.id)?.serviceEvents[0];
+
+    assert.ok(movedEvent);
+    assert.equal(movedEvent.serviceDurationMinutes, 40);
+    assert.equal(minutesBetween(movedEvent.serviceStart, movedEvent.serviceEnd), 40);
+  });
+
   it("moves a flight to another push and recalculates source and destination pushes", () => {
     const generated = planForManualControl();
     const state = createManualPlanState(generated);

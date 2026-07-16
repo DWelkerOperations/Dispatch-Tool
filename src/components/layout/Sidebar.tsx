@@ -1,9 +1,10 @@
-import { BarChart3, CalendarDays, ClipboardCheck, LayoutDashboard, Menu, Plane, Ruler, Settings, Truck, Users, Wrench } from "lucide-react";
+import { BarChart3, CalendarClock, CalendarDays, ClipboardCheck, LayoutDashboard, Menu, Plane, Ruler, Settings, Truck, Users, Wrench } from "lucide-react";
 import { isVisibleAppTab } from "../../config/appBranding";
 import type { AppTab } from "../../types/dispatch";
 
 const navItems = [
   { id: "resource-guide", label: "Resource", icon: ClipboardCheck },
+  { id: "retrospective", label: "Retro", icon: CalendarClock },
   { id: "planning", label: "Plan", icon: CalendarDays },
   { id: "ord-planner", label: "ORD", icon: Plane },
   { id: "dispatch", label: "Dispatch", icon: Truck },
@@ -35,7 +36,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
               key={item.id}
               onClick={() => onTabChange(item.id)}
               className={`flex h-[58px] w-[58px] flex-col items-center justify-center rounded-2xl text-[11px] transition ${
-                active ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-100"
+                active ? "bg-red-50 text-pride-red ring-1 ring-red-100" : "text-slate-500 hover:bg-slate-100"
               }`}
               aria-label={item.label}
               title={item.label}

@@ -6,7 +6,7 @@ import { mockTrucks } from "../../data/mockResources";
 import { createManualPlanState, moveFlightToPush, movePushByMinutes, resetManualPlan, undoManualMove } from "../../engine/manualControl";
 import { createPlanningSchedule, filterScheduleResultByOperation, timeToMinutes } from "../../engine/scheduler";
 import { categoryForAircraft } from "../../import/aircraftMap";
-import type { Driver, FlightAssignment, Helper, ManualPlanState, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
+import type { Driver, FlightAssignment, Helper, ManualPlanState, OperationType, OperationView, PlanningRules, Push, ScheduleResult } from "../../types/dispatch";
 import { applyFlightTaskTypeChange, type FlightTaskTypeChange } from "../../utils/taskTypeUpdates";
 import { resourceIds } from "../../utils/resources";
 import { earliestPlanningShiftStartMinutes } from "../../utils/shiftStarts";
@@ -26,6 +26,7 @@ type PlanningToolPageProps = {
   readyTitle?: string;
   readyDescription?: string;
   createButtonLabel?: string;
+  createDisabled?: boolean;
   assumptionTitle?: string;
   assumptionDescription?: string;
   resourcePlanPosition?: "above-timeline" | "below-timeline";
@@ -46,17 +47,22 @@ type PlanningToolPageProps = {
   fixedStartTimes?: string[];
   fixedStartResources?: FixedStartResource[];
   allowShiftOverflow?: boolean;
+  pairedBuilds?: PairedPlanningBuild[];
   onDateChange: (date: string) => void;
   onFlightTaskTypeChange?: (change: FlightTaskTypeChange) => void;
   onOperationTypeChange: (operationType: OperationView) => void;
   onResultChange: (result: ScheduleResult | null) => void;
   onMaxAllowedStartTimesChange?: (value: number) => void;
   onStartTimeModeChange?: (mode: StartTimeMode) => void;
+  onFixedStartTimesChange?: (fixedStartTimes: string[]) => void;
+  onFixedStartResourcesChange?: (fixedStartResources: FixedStartResource[]) => void;
+  onPairedResultsChange?: (results: Record<string, ScheduleResult | null>) => void;
   onExport?: (payload: PlanningExportPayload) => void;
 };
 
 type StartTimeMode = "dynamic" | "fixed" | "fixed-resource";
 export type FixedStartResource = { startTime: string; resources: number };
+type PairedPlanningBuild = { id: string; flights: FlightAssignment[] };
 
 type PlanningExportPayload = {
   result: ScheduleResult;
@@ -78,11 +84,13 @@ export function PlanningToolPage({
   readyTitle = "Ready to Plan",
   readyDescription,
   createButtonLabel = "Create Pairings",
+  createDisabled = false,
   assumptionTitle = "Planning Assumption",
   assumptionDescription,
   resourcePlanPosition = "below-timeline",
   resourcePlanTitle = "Resource Plan",
   resourcePlanDescription = "Driver starts by shift wave.",
+  disallowCriticalPairings = false,
   preventUrgentPairings = false,
   showPairingQuality = false,
   showIterationControls = false,
@@ -95,12 +103,16 @@ export function PlanningToolPage({
   fixedStartTimes = [],
   fixedStartResources = [],
   allowShiftOverflow = true,
+  pairedBuilds = [],
   onDateChange,
   onFlightTaskTypeChange,
   onOperationTypeChange,
   onResultChange,
   onMaxAllowedStartTimesChange,
   onStartTimeModeChange,
+  onFixedStartTimesChange,
+  onFixedStartResourcesChange,
+  onPairedResultsChange,
   onExport,
 }: PlanningToolPageProps) {
   const [iterationSettings, setIterationSettings] = useState({
@@ -147,34 +159,71 @@ export function PlanningToolPage({
     try {
       await waitForPaint();
       const shiftStartIncrementMinutes = options?.shiftStartIncrementMinutes ?? defaultShiftStartIncrementMinutes;
-      const activePlanningResources = isFixedResourceMode && fixedStartResources.length > 0
-        ? createFixedResourcePlanningResources(fixedStartResources, runRules)
-        : isFixedStartTimeMode && fixedStartTimes.length > 0
-        ? createFixedStartPlanningResources(fixedStartTimes, runRules)
-        : shiftStartIncrementMinutes === defaultShiftStartIncrementMinutes
-        ? planningResources
-        : createPlanningResources(flights, runRules, shiftStartIncrementMinutes);
       const maxStartTimes = options?.maxStartTimes ?? maxAllowedStartTimes;
 
-      const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks) => createPlanningSchedule(flights, drivers, helpers, trucks, {
-        rules: runRules,
-        pairingStrategy: { targetThreeFlightPairingPercent, allowUrgentPairings: !preventUrgentPairings },
-        allowShiftOverflow,
-      });
+      const buildGuidance = (buildFlights: FlightAssignment[]) => {
+        const activePlanningResources = isFixedResourceMode && fixedStartResources.length > 0
+          ? createFixedResourcePlanningResources(fixedStartResources, runRules)
+          : isFixedStartTimeMode && fixedStartTimes.length > 0
+          ? createFixedStartPlanningResources(fixedStartTimes, runRules)
+          : shiftStartIncrementMinutes === defaultShiftStartIncrementMinutes && buildFlights === flights
+          ? planningResources
+          : createPlanningResources(buildFlights, runRules, shiftStartIncrementMinutes);
 
-      const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks);
-      const selectedStartTimes = !allowShiftOverflow
-        ? candidateShiftStartsForFlights(flights, runRules, shiftStartIncrementMinutes)
-        : (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
-        ? fixedStartTimes
-        : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
-      const targetResources = isFixedResourceMode && fixedStartResources.length > 0
-        ? createFixedResourcePlanningResources(fixedStartResources, rules)
-        : createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), rules, { preserveExactStarts: isFixedStartTimeMode });
-      onResultChange(createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks));
+        const createSchedule = (drivers: Driver[], helpers: Helper[], trucks: typeof planningResources.trucks) => createPlanningSchedule(buildFlights, drivers, helpers, trucks, {
+          rules: runRules,
+          pairingStrategy: {
+            targetThreeFlightPairingPercent,
+            allowUrgentPairings: !preventUrgentPairings && !isFixedResourceMode,
+            avoidWatchPairings: isFixedResourceMode,
+          },
+          allowShiftOverflow,
+          assignmentStrategy: isFixedResourceMode ? "spread" : "reuse",
+        });
+
+        const firstPass = createSchedule(activePlanningResources.drivers, activePlanningResources.helpers, activePlanningResources.trucks);
+        const selectedStartTimes = !allowShiftOverflow
+          ? candidateShiftStartsForFlights(buildFlights, runRules, shiftStartIncrementMinutes)
+          : (isFixedStartTimeMode || isFixedResourceMode) && fixedStartTimes.length > 0
+          ? fixedStartTimes
+          : selectShiftBidStartTimes(firstPass.pushes, activePlanningResources.drivers, maxStartTimes);
+        const targetFixedResources = isFixedResourceMode && fixedStartResources.length > 0 ? fixedStartResources : [];
+        const targetResources = targetFixedResources.length > 0
+          ? createFixedResourcePlanningResources(targetFixedResources, runRules)
+          : createTargetResources(selectedStartTimes, targetResourcesPerStart, createTargetTruckPool(), runRules, { preserveExactStarts: isFixedStartTimeMode });
+        let result = createSchedule(targetResources.drivers, targetResources.helpers, targetResources.trucks);
+
+        if (disallowCriticalPairings && targetFixedResources.length > 0) {
+          const supplementalResources: FixedStartResource[] = [];
+          let previousCriticalCount = criticalPushCount(result);
+          for (let attempt = 0; attempt < maxCriticalRepairAttempts && previousCriticalCount > 0; attempt += 1) {
+            supplementalResources.push(...criticalPushCoverageStarts(result));
+            const repairedResources = createFixedResourcePlanningResources(mergeFixedStartResources([...targetFixedResources, ...supplementalResources]), runRules);
+            const repairedResult = createSchedule(repairedResources.drivers, repairedResources.helpers, repairedResources.trucks);
+            const nextCriticalCount = criticalPushCount(repairedResult);
+            result = repairedResult;
+            if (nextCriticalCount >= previousCriticalCount) break;
+            previousCriticalCount = nextCriticalCount;
+          }
+        }
+
+        return result;
+      };
+
+      const nextResult = buildGuidance(flights);
+      onResultChange(nextResult);
+      if (pairedBuilds.length > 0) {
+        onPairedResultsChange?.(Object.fromEntries(pairedBuilds.map((build) => [
+          build.id,
+          build.flights === flights ? nextResult : buildGuidance(build.flights),
+        ])));
+      }
     } catch (error) {
       setPlanningError(error instanceof Error ? error.message : "Could not create guidance for this schedule.");
       onResultChange(null);
+      if (pairedBuilds.length > 0) {
+        onPairedResultsChange?.(Object.fromEntries(pairedBuilds.map((build) => [build.id, null])));
+      }
     } finally {
       setIsBuildingPlan(false);
     }
@@ -218,11 +267,24 @@ export function PlanningToolPage({
     onFlightTaskTypeChange?.(change);
   }
 
-  const rawTimelineDrivers = visibleResult ? driversUsedByPlan(planningResources.drivers, visibleResult.pushes) : planningResources.drivers.slice(0, 12);
-  const timelineDrivers = visibleResult ? limitDriverDisplayStartWaves(rawTimelineDrivers, visibleResult.pushes, maxAllowedStartTimes, runRules) : rawTimelineDrivers;
+  const rawTimelineDrivers = visibleResult
+    ? isFixedResourceMode
+      ? fixedResourceDriversForPlan(planningResources.drivers, visibleResult.pushes, operationType)
+      : driversUsedByPlan(planningResources.drivers, visibleResult.pushes)
+    : planningResources.drivers.slice(0, 12);
+  const timelineDriversBase = visibleResult && !isFixedResourceMode
+    ? limitDriverDisplayStartWaves(rawTimelineDrivers, visibleResult.pushes, maxAllowedStartTimes, runRules)
+    : rawTimelineDrivers;
+  const timelineDrivers = visibleResult && isFixedResourceMode
+    ? labelBullpenDrivers(timelineDriversBase, visibleResult.pushes)
+    : timelineDriversBase;
   const startWaves = visibleResult
     ? createStartWaves(visibleResult.pushes, timelineDrivers)
     : [];
+  const fixedResourceStartWaves = isFixedResourceMode ? startWavesForFixedResources(fixedStartResources) : [];
+  const displayedStartWaves = fixedResourceStartWaves.length > 0 ? fixedResourceStartWaves : startWaves;
+  const fixedResourceCount = fixedResourceStartWaves.reduce((total, wave) => total + wave.driverStarts, 0);
+  const configuredResourceCount = fixedResourceStartWaves.length > 0 ? fixedResourceCount : undefined;
 
   return (
     <div className="space-y-5">
@@ -235,12 +297,14 @@ export function PlanningToolPage({
           <div className="flex flex-wrap items-center gap-3">
             <DateFilter value={selectedDate} onChange={onDateChange} />
             <OperationToggle value={operationType} onChange={onOperationTypeChange} />
-            {(onMaxAllowedStartTimesChange || onStartTimeModeChange) && (
+            {(onMaxAllowedStartTimesChange || onStartTimeModeChange || onFixedStartResourcesChange) && (
               <StartTimeControls
                 fixedStartTimes={fixedStartTimes}
                 fixedStartResources={fixedStartResources}
                 maxAllowedStartTimes={maxAllowedStartTimes}
                 mode={startTimeMode}
+                onFixedStartResourcesChange={onFixedStartResourcesChange}
+                onFixedStartTimesChange={onFixedStartTimesChange}
                 onMaxAllowedStartTimesChange={onMaxAllowedStartTimesChange}
                 onModeChange={onStartTimeModeChange}
               />
@@ -248,7 +312,7 @@ export function PlanningToolPage({
             <button
               type="button"
               onClick={() => void handleCreatePairings()}
-              disabled={isBuildingPlan || flights.length === 0}
+              disabled={isBuildingPlan || createDisabled || flights.length === 0}
               className="rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:bg-slate-300"
             >
               {isBuildingPlan ? "Building..." : createButtonLabel}
@@ -292,8 +356,22 @@ export function PlanningToolPage({
         </Panel>
       ) : (
         <>
-          <ScheduleSummaryCards result={visibleResult} drivers={timelineDrivers} />
-          {resourcePlanPosition === "above-timeline" && <PlanningResourcePanel result={visibleResult} startWaves={startWaves} title={resourcePlanTitle} description={resourcePlanDescription} />}
+          <ScheduleSummaryCards
+            result={visibleResult}
+            drivers={timelineDrivers}
+            configuredDriverCount={configuredResourceCount}
+            configuredHelperCount={configuredResourceCount}
+          />
+          {resourcePlanPosition === "above-timeline" && (
+            <PlanningResourcePanel
+              result={visibleResult}
+              startWaves={displayedStartWaves}
+              title={resourcePlanTitle}
+              description={resourcePlanDescription}
+              configuredDriverCount={configuredResourceCount}
+              configuredHelperCount={configuredResourceCount}
+            />
+          )}
           {showPairingQuality && (
             <PairingQualityPanel
               result={visibleResult}
@@ -327,7 +405,16 @@ export function PlanningToolPage({
             onPushTimeChange={handlePushTimeChange}
             onFlightMove={handleFlightMove}
           />
-          {resourcePlanPosition === "below-timeline" && <PlanningResourcePanel result={visibleResult} startWaves={startWaves} title={resourcePlanTitle} description={resourcePlanDescription} />}
+          {resourcePlanPosition === "below-timeline" && (
+            <PlanningResourcePanel
+              result={visibleResult}
+              startWaves={displayedStartWaves}
+              title={resourcePlanTitle}
+              description={resourcePlanDescription}
+              configuredDriverCount={configuredResourceCount}
+              configuredHelperCount={configuredResourceCount}
+            />
+          )}
           <Panel className="p-5">
             <h3 className="text-base font-semibold text-ink">{assumptionTitle}</h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -433,6 +520,30 @@ const strictUrgentPairingLimitPercent = 0;
 const standardThreeFlightPairingTargetPercent = 80;
 const minShiftBidStartTimes = 8;
 const maxShiftBidStartTimes = 16;
+const maxCriticalRepairAttempts = 5;
+
+function criticalPushCount(result: ScheduleResult) {
+  return result.pushes.filter((push) => push.riskSeverity === "critical").length;
+}
+
+function criticalPushCoverageStarts(result: ScheduleResult): FixedStartResource[] {
+  return result.pushes
+    .filter((push) => push.riskSeverity === "critical")
+    .map((push) => ({
+      startTime: push.loadStartTime,
+      resources: Math.max(1, resourceIds(push.driverId).length || (push.aircraftCategory === "widebody" ? 2 : 1)),
+    }));
+}
+
+function mergeFixedStartResources(resources: FixedStartResource[]) {
+  const byStartTime = new Map<string, number>();
+  for (const resource of resources) {
+    byStartTime.set(resource.startTime, (byStartTime.get(resource.startTime) ?? 0) + resource.resources);
+  }
+  return [...byStartTime.entries()]
+    .map(([startTime, resources]) => ({ startTime, resources }))
+    .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+}
 
 function IterationControls({
   settings,
@@ -504,6 +615,8 @@ function StartTimeControls({
   fixedStartResources,
   maxAllowedStartTimes,
   mode,
+  onFixedStartResourcesChange,
+  onFixedStartTimesChange,
   onMaxAllowedStartTimesChange,
   onModeChange,
 }: {
@@ -511,18 +624,40 @@ function StartTimeControls({
   fixedStartResources: FixedStartResource[];
   maxAllowedStartTimes: number;
   mode: StartTimeMode;
+  onFixedStartResourcesChange?: (fixedStartResources: FixedStartResource[]) => void;
+  onFixedStartTimesChange?: (fixedStartTimes: string[]) => void;
   onMaxAllowedStartTimesChange?: (value: number) => void;
   onModeChange?: (mode: StartTimeMode) => void;
 }) {
-  if (!onModeChange) {
-    return onMaxAllowedStartTimesChange
-      ? <StartTimeLimitSelect value={maxAllowedStartTimes} onChange={onMaxAllowedStartTimesChange} />
-      : null;
-  }
-
   const isFixed = mode === "fixed";
   const isFixedResource = mode === "fixed-resource";
   const disablesStartWaveLimit = isFixed || isFixedResource;
+  function handleFixedStartTimeChange(index: number, startTime: string) {
+    if (!onFixedStartTimesChange) return;
+    const nextStartTimes = [...fixedStartTimes];
+    nextStartTimes[index] = startTime;
+    onFixedStartTimesChange(nextStartTimes);
+  }
+
+  function handleFixedStartResourceChange(index: number, partial: Partial<FixedStartResource>) {
+    if (!onFixedStartResourcesChange) return;
+    const nextResources = fixedStartResources.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, ...partial } : item
+    ));
+    onFixedStartResourcesChange(nextResources);
+  }
+
+  if (!onModeChange) {
+    if (!onMaxAllowedStartTimesChange && (!isFixedResource || !onFixedStartResourcesChange || fixedStartResources.length === 0)) return null;
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+        {onMaxAllowedStartTimesChange && <StartTimeLimitSelect value={maxAllowedStartTimes} onChange={onMaxAllowedStartTimesChange} />}
+        {isFixedResource && fixedStartResources.length > 0 && onFixedStartResourcesChange && (
+          <FixedResourceInputs resources={fixedStartResources} onChange={handleFixedStartResourceChange} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
@@ -563,22 +698,74 @@ function StartTimeControls({
       </div>
       {isFixed && fixedStartTimes.length > 0 && (
         <div className="mt-2 grid grid-cols-5 gap-1.5">
-          {fixedStartTimes.map((startTime) => (
-            <span key={startTime} className="rounded-md bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold text-slate-700">
-              {startTime}
-            </span>
+          {fixedStartTimes.map((startTime, index) => (
+            onFixedStartTimesChange ? (
+              <label key={`fixed-start-${index}`} className="rounded-md bg-slate-100 px-1.5 py-1 text-[11px] font-semibold text-slate-700">
+                <span className="sr-only">Fixed start {index + 1}</span>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(event) => handleFixedStartTimeChange(index, event.target.value)}
+                  className="w-full bg-transparent text-center font-semibold text-slate-700 outline-none"
+                  aria-label={`Fixed start ${index + 1}`}
+                />
+              </label>
+            ) : (
+              <span key={startTime} className="rounded-md bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold text-slate-700">
+                {startTime}
+              </span>
+            )
           ))}
         </div>
       )}
       {isFixedResource && fixedStartResources.length > 0 && (
-        <div className="mt-2 grid grid-cols-5 gap-1.5">
-          {fixedStartResources.map((item) => (
-            <span key={item.startTime} className="rounded-md bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold text-slate-700">
-              {item.startTime} · {item.resources}
-            </span>
-          ))}
-        </div>
+        onFixedStartResourcesChange ? (
+          <FixedResourceInputs resources={fixedStartResources} onChange={handleFixedStartResourceChange} />
+        ) : (
+          <div className="mt-2 grid grid-cols-5 gap-1.5">
+            {fixedStartResources.map((item) => (
+              <span key={item.startTime} className="rounded-md bg-slate-100 px-2 py-1 text-center text-[11px] font-semibold text-slate-700">
+                {item.startTime} · {item.resources}
+              </span>
+            ))}
+          </div>
+        )
       )}
+    </div>
+  );
+}
+
+function FixedResourceInputs({
+  resources,
+  onChange,
+}: {
+  resources: FixedStartResource[];
+  onChange: (index: number, partial: Partial<FixedStartResource>) => void;
+}) {
+  return (
+    <div className="mt-2 grid grid-cols-5 gap-1.5">
+      {resources.map((item, index) => (
+        <label key={`fixed-resource-${index}`} className="grid grid-cols-[1fr_3rem] items-center gap-1 rounded-md bg-slate-100 px-1.5 py-1 text-[11px] font-semibold text-slate-700">
+          <span className="sr-only">Staffing wave {index + 1}</span>
+          <input
+            type="time"
+            value={item.startTime}
+            onChange={(event) => onChange(index, { startTime: event.target.value })}
+            className="min-w-0 bg-transparent text-center font-semibold text-slate-700 outline-none"
+            aria-label={`Staffing wave ${index + 1} start time`}
+          />
+          <input
+            type="number"
+            min={0}
+            max={260}
+            step={1}
+            value={item.resources}
+            onChange={(event) => onChange(index, { resources: Math.max(0, Math.floor(Number(event.target.value) || 0)) })}
+            className="min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 text-center font-semibold text-ink outline-none"
+            aria-label={`Staffing wave ${index + 1} resources`}
+          />
+        </label>
+      ))}
     </div>
   );
 }
@@ -667,8 +854,10 @@ function PairingQualityPanel({
   targetThreeFlightPairingPercent: number;
 }) {
   const coverage = scheduleCoverageForView(result, flights, operationType);
+  const elevatedPairingCount = result.pushes.filter((push) => push.flights.length > 1 && push.riskSeverity !== "normal").length;
+  const urgentOrCriticalPairingCount = result.pushes.filter((push) => push.flights.length > 1 && (push.riskSeverity === "urgent" || push.riskSeverity === "critical")).length;
   const urgentPercent = result.summary.totalPushes > 0
-    ? Math.round((result.summary.urgentPushes / result.summary.totalPushes) * 100)
+    ? Math.round((urgentOrCriticalPairingCount / result.summary.totalPushes) * 100)
     : 0;
   const threeFlightPairingCount = result.pushes.filter((push) => push.flights.length === 3).length;
   const threeFlightPairingPercent = result.summary.totalPushes > 0
@@ -692,19 +881,19 @@ function PairingQualityPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-ink">Pairing Quality</h3>
-          <p className="mt-1 text-sm text-slate-600">Compare coverage, urgent timing, and 3-flight pairing yield for this iteration.</p>
+          <p className="mt-1 text-sm text-slate-600">Compare coverage, elevated-risk pairings, and 3-flight pairing yield for this iteration.</p>
         </div>
         <div className="flex items-center gap-2">
           <MiniMetric label="Paired Flights" value={`${coverage.scheduledFlights}/${coverage.expectedFlights}`} />
           <MiniMetric label="Exception Flights" value={coverage.exceptionFlights.length} />
           <MiniMetric label="Missing Flights" value={coverage.missingFlights.length} />
-          <MiniMetric label="Urgent Pairings" value={result.summary.urgentPushes} />
+          <MiniMetric label="Elevated Pairings" value={elevatedPairingCount} />
           <MiniMetric label="3-Flight Pairings" value={`${threeFlightPairingPercent}%`} />
           <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${coverage.exceptionFlights.length === 0 && coverage.missingFlights.length === 0 ? "border-emerald-200 bg-white text-emerald-700" : "border-red-200 bg-white text-red-700"}`}>
             {pairedLabel}
           </div>
           <div className={`rounded-lg border px-3 py-2 text-sm font-semibold ${urgentTone}`}>
-            {urgentPercent}% urgent
+            {urgentOrCriticalPairingCount} urgent/critical
           </div>
         </div>
       </div>
@@ -764,7 +953,21 @@ function baseFlightId(flightId: string) {
   return flightId.replace(/-intl-strip$/, "");
 }
 
-function PlanningResourcePanel({ result, startWaves, title, description }: { result: ScheduleResult; startWaves: StartWave[]; title: string; description: string }) {
+function PlanningResourcePanel({
+  result,
+  startWaves,
+  title,
+  description,
+  configuredDriverCount,
+  configuredHelperCount,
+}: {
+  result: ScheduleResult;
+  startWaves: StartWave[];
+  title: string;
+  description: string;
+  configuredDriverCount?: number;
+  configuredHelperCount?: number;
+}) {
   return (
     <Panel className="p-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -773,9 +976,11 @@ function PlanningResourcePanel({ result, startWaves, title, description }: { res
           <p className="mt-0.5 text-xs text-slate-500">{description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-xs">
-          <MiniMetric label="Drivers Needed" value={result.summary.driversRequired} />
+          <MiniMetric label={configuredDriverCount === undefined ? "Drivers Needed" : "Drivers Used"} value={result.summary.driversRequired} />
+          {configuredDriverCount !== undefined && <MiniMetric label="Drivers Configured" value={configuredDriverCount} />}
           <MiniMetric label="Trucks Needed" value={result.summary.maxTrucksRequired} />
-          <MiniMetric label="Helpers Needed" value={result.summary.helpersRequired} />
+          <MiniMetric label={configuredHelperCount === undefined ? "Helpers Needed" : "Helpers Used"} value={result.summary.helpersRequired} />
+          {configuredHelperCount !== undefined && <MiniMetric label="Helpers Configured" value={configuredHelperCount} />}
         </div>
         <div className="grid flex-1 grid-cols-5 gap-2 xl:grid-cols-10">
           {startWaves.map((wave) => (
@@ -863,8 +1068,47 @@ function driversUsedByPlan(drivers: Driver[], pushes: Push[]) {
     });
 }
 
+function labelBullpenDrivers(drivers: Driver[], pushes: Push[]) {
+  const usedDriverIds = new Set(pushes.flatMap((push) => resourceIds(push.driverId)));
+  const labeledStarts = new Set<string>();
+  let bullpenCount = 0;
+
+  return drivers.flatMap((driver) => {
+    if (usedDriverIds.has(driver.id)) return [driver];
+    if (bullpenCount >= maxBullpenDrivers) return [];
+    const shiftStart = driver.displayShiftStart ?? driver.shiftStart;
+    if (labeledStarts.has(shiftStart)) return [];
+    labeledStarts.add(shiftStart);
+    bullpenCount += 1;
+    return [{
+      ...driver,
+      name: `Bullpen ${shiftStart}`,
+    }];
+  });
+}
+
+function fixedResourceDriversForPlan(drivers: Driver[], pushes: Push[], operationType: OperationView) {
+  const assignedDriverIds = new Set(pushes.flatMap((push) => resourceIds(push.driverId)));
+  const operationPrefix = operationPrefixForPushes(pushes, operationType);
+
+  return drivers.map((driver) => {
+    const prefixedId = operationPrefix ? `${operationPrefix}-${driver.id}` : driver.id;
+    if (assignedDriverIds.has(prefixedId)) return { ...driver, id: prefixedId };
+    if (assignedDriverIds.has(driver.id)) return driver;
+    return operationPrefix ? { ...driver, id: prefixedId } : driver;
+  });
+}
+
+function operationPrefixForPushes(pushes: Push[], operationType: OperationView) {
+  if (operationType === "mainline" || operationType === "express") return operationType;
+  const assignedDriverIds = pushes.flatMap((push) => resourceIds(push.driverId));
+  const prefixes = new Set(assignedDriverIds.map((driverId) => driverId.match(/^(mainline|express)-/)?.[1]).filter((prefix): prefix is OperationType => Boolean(prefix)));
+  return prefixes.size === 1 ? [...prefixes][0] : "";
+}
+
 type StartWave = { startTime: string; driverStarts: number };
 
+const maxBullpenDrivers = 6;
 const defaultMaxShiftBidStartTimes = 12;
 const targetResourcesPerStart = 260;
 const defaultShiftStartIncrementMinutes = 30;
@@ -886,6 +1130,13 @@ function createStartWaves(pushes: Push[], drivers: Driver[]): StartWave[] {
   }
 
   return [...buckets.values()]
+    .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+}
+
+function startWavesForFixedResources(fixedStartResources: FixedStartResource[]): StartWave[] {
+  return fixedStartResources
+    .map((item) => ({ startTime: item.startTime, driverStarts: Math.max(0, Math.floor(item.resources)) }))
+    .filter((wave) => wave.driverStarts > 0)
     .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 }
 

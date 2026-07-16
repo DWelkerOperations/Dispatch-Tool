@@ -2,7 +2,7 @@ import { Upload } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { useMemo, useRef, useState } from "react";
 import type { FlightAssignment } from "../../types/dispatch";
-import { parseScheduleFile, type NormalizedScheduleRow, type ScheduleImportResult } from "../../import/scheduleImport";
+import { isVolareReferenceDateRequiredError, parseScheduleFile, type NormalizedScheduleRow, type ScheduleImportResult } from "../../import/scheduleImport";
 
 type ScheduleImporterProps = {
   onImport: (flights: FlightAssignment[], fileName: string, selectedDate?: string) => void;
@@ -17,7 +17,11 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
   const [importError, setImportError] = useState<string | null>(null);
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const [pendingSchedule, setPendingSchedule] = useState<PendingSchedule | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const [volareReferenceMonth, setVolareReferenceMonth] = useState("");
+  const [volareMonthConfirmed, setVolareMonthConfirmed] = useState(false);
+  const [isApplyingVolareMonth, setIsApplyingVolareMonth] = useState(false);
 
   const selectedSchedule = useMemo(() => {
     if (!pendingSchedule) return null;
@@ -44,16 +48,53 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
       setImportError(null);
       setImportWarning(null);
       setPendingSchedule(null);
+      setPendingFile(file);
       setSelectedDate("");
+      setVolareReferenceMonth("");
+      setVolareMonthConfirmed(false);
       const result = await parseScheduleFile(file);
-      setPendingSchedule({ ...result, fileName: file.name });
-      setSelectedDate(result.availableDates[0] ?? "");
-      setImportWarning(importSummary(result));
+      preparePendingSchedule(result, file);
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : "Could not read schedule file.");
-      setImportWarning(null);
+      if (isVolareReferenceDateRequiredError(error)) {
+        setImportError(null);
+        setImportWarning("Volare actuals detected. Choose and confirm the report month before loading the schedule.");
+      } else {
+        setPendingFile(null);
+        setImportError(error instanceof Error ? error.message : "Could not read schedule file.");
+        setImportWarning(null);
+      }
     } finally {
       event.target.value = "";
+    }
+  }
+
+  function preparePendingSchedule(result: ScheduleImportResult, file: File) {
+    setPendingSchedule({ ...result, fileName: file.name });
+    setSelectedDate(defaultImportDate(result.availableDates));
+    setImportWarning(importSummary(result));
+    if (result.detectedFormat === "volare") {
+      setVolareReferenceMonth(result.availableDates[0]?.slice(0, 7) ?? "");
+      setVolareMonthConfirmed(false);
+    } else {
+      setPendingFile(null);
+    }
+  }
+
+  async function applyVolareReferenceMonth() {
+    if (!pendingFile || !/^\d{4}-\d{2}$/.test(volareReferenceMonth)) return;
+    setIsApplyingVolareMonth(true);
+    setImportError(null);
+    try {
+      const result = await parseScheduleFile(pendingFile, { referenceDate: `${volareReferenceMonth}-15` });
+      setPendingSchedule({ ...result, fileName: pendingFile.name });
+      setSelectedDate(defaultImportDate(result.availableDates));
+      setImportWarning(importSummary(result));
+      setVolareMonthConfirmed(true);
+    } catch (error) {
+      setVolareMonthConfirmed(false);
+      setImportError(error instanceof Error ? error.message : "Could not apply the Volare report month.");
+    } finally {
+      setIsApplyingVolareMonth(false);
     }
   }
 
@@ -62,12 +103,18 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
     onImport(selectedSchedule.flights, pendingSchedule.fileName, selectedSchedule.date);
     setImportWarning(`${selectedSchedule.flights.length} normalized row(s) loaded${selectedSchedule.date ? ` for ${formatDateForDisplay(selectedSchedule.date)}` : ""}.`);
     setPendingSchedule(null);
+    setPendingFile(null);
     setSelectedDate("");
+    setVolareReferenceMonth("");
+    setVolareMonthConfirmed(false);
   }
 
   function cancelImport() {
     setPendingSchedule(null);
+    setPendingFile(null);
     setSelectedDate("");
+    setVolareReferenceMonth("");
+    setVolareMonthConfirmed(false);
     setImportWarning(null);
     setImportError(null);
   }
@@ -87,6 +134,18 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
         {importError && <span className="text-xs font-medium text-red-600">{importError}</span>}
         {!importError && importWarning && <span className="max-w-xl text-xs font-medium text-amber-700">{importWarning}</span>}
       </div>
+      {pendingFile && !pendingSchedule && (
+        <VolareMonthPrompt
+          month={volareReferenceMonth}
+          isApplying={isApplyingVolareMonth}
+          onMonthChange={(month) => {
+            setVolareReferenceMonth(month);
+            setVolareMonthConfirmed(false);
+          }}
+          onApply={() => void applyVolareReferenceMonth()}
+          onCancel={cancelImport}
+        />
+      )}
       {pendingSchedule && selectedSchedule && (
         <div className="mt-3 max-w-5xl rounded-xl border border-amber-200 bg-amber-50 p-3 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -112,11 +171,25 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
               <button type="button" onClick={cancelImport} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50">
                 Cancel
               </button>
-              <button type="button" onClick={confirmImport} disabled={selectedSchedule.flights.length === 0} className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">
+              <button type="button" onClick={confirmImport} disabled={selectedSchedule.flights.length === 0 || (pendingSchedule.detectedFormat === "volare" && !volareMonthConfirmed)} className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">
                 Use This Schedule
               </button>
             </div>
           </div>
+          {pendingSchedule.detectedFormat === "volare" && (
+            <div className="mt-3">
+              <VolareMonthPrompt
+                month={volareReferenceMonth}
+                confirmed={volareMonthConfirmed}
+                isApplying={isApplyingVolareMonth}
+                onMonthChange={(month) => {
+                  setVolareReferenceMonth(month);
+                  setVolareMonthConfirmed(false);
+                }}
+                onApply={() => void applyVolareReferenceMonth()}
+              />
+            </div>
+          )}
           {pendingSchedule.warnings.length > 0 && (
             <div className="mt-3 rounded-lg border border-amber-200 bg-white/70 p-2 text-xs text-amber-800">
               {pendingSchedule.warnings.slice(0, 4).map((warning) => <div key={warning}>{warning}</div>)}
@@ -125,6 +198,55 @@ export function ScheduleImporter({ onImport }: ScheduleImporterProps) {
           )}
           <NormalizedPreview rows={selectedSchedule.rows} />
         </div>
+      )}
+    </div>
+  );
+}
+
+function VolareMonthPrompt({
+  month,
+  confirmed = false,
+  isApplying,
+  onMonthChange,
+  onApply,
+  onCancel,
+}: {
+  month: string;
+  confirmed?: boolean;
+  isApplying: boolean;
+  onMonthChange: (month: string) => void;
+  onApply: () => void;
+  onCancel?: () => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-white px-3 py-3 text-xs text-slate-700 shadow-sm">
+      <label className="flex items-center gap-2 font-semibold">
+        Volare report month
+        <input
+          type="month"
+          value={month}
+          onChange={(event) => onMonthChange(event.target.value)}
+          className="rounded-md border border-slate-200 bg-white px-2 py-1.5 font-semibold text-ink outline-none focus:border-pride-red focus:ring-2 focus:ring-red-100"
+          aria-label="Volare report month"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onApply}
+        disabled={isApplying || !/^\d{4}-\d{2}$/.test(month)}
+        className="rounded-md bg-pride-red px-3 py-1.5 font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        {isApplying ? "Applying..." : confirmed ? "Month confirmed" : "Apply report month"}
+      </button>
+      {confirmed ? (
+        <span className="font-semibold text-emerald-700">Confirmed. Review the normalized dates below before loading.</span>
+      ) : (
+        <span className="text-amber-800">Required because the outbound-flight suffix contains only a day of month.</span>
+      )}
+      {onCancel && (
+        <button type="button" onClick={onCancel} className="ml-auto rounded-md border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 hover:bg-slate-50">
+          Cancel
+        </button>
       )}
     </div>
   );
@@ -144,6 +266,7 @@ function formatLabel(format: ScheduleImportResult["detectedFormat"]) {
     "flight-overview": "flight overview schedule",
     "operation-plan": "operation plan schedule",
     "ua-turns": "UA turns report",
+    volare: "Volare actuals report",
   }[format];
 }
 
@@ -151,6 +274,13 @@ function formatDateForDisplay(date: string) {
   const [year, month, day] = date.split("-");
   if (!year || !month || !day) return date;
   return `${month}/${day}/${year}`;
+}
+
+function defaultImportDate(availableDates: string[]) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+  return availableDates.includes(yesterdayKey) ? yesterdayKey : availableDates[0] ?? "";
 }
 
 function NormalizedPreview({ rows }: { rows: NormalizedScheduleRow[] }) {

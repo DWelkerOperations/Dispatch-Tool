@@ -12,6 +12,8 @@ import type {
   ScheduleResult,
   ServiceEvent,
 } from "../types/dispatch";
+import { is757Aircraft } from "../import/aircraftMap";
+import { resourceIds } from "../utils/resources";
 
 const snapMinutes = 5;
 const kitchenUnloadMinutes = 15;
@@ -65,6 +67,10 @@ export function movePushByMinutes(state: ManualPlanState, pushId: string, deltaM
     snapshot.pushOverrides[pushId] = pushOverrideFor(push, recalculated, []);
     annotateFlightOverrides(snapshot, push, recalculated, pushId);
     validateManualPlan(snapshot.result, snapshot.flightOverrides, snapshot.pushOverrides, rules);
+    snapshot.result = {
+      ...snapshot.result,
+      summary: summarizeManualResult(snapshot.result),
+    };
   });
 }
 
@@ -338,11 +344,11 @@ function validateManualPlan(
       };
     }
 
-    if (push.driverId) {
-      byDriver.set(push.driverId, [...(byDriver.get(push.driverId) ?? []), push]);
+    for (const driverId of resourceIds(push.driverId)) {
+      byDriver.set(driverId, [...(byDriver.get(driverId) ?? []), push]);
     }
-    if (push.truckId) {
-      byTruck.set(push.truckId, [...(byTruck.get(push.truckId) ?? []), push]);
+    for (const truckId of resourceIds(push.truckId)) {
+      byTruck.set(truckId, [...(byTruck.get(truckId) ?? []), push]);
     }
   }
 
@@ -542,27 +548,28 @@ function serviceMinutesForFlight(flight: Flight, rules: PlanningRules) {
 }
 
 function driveMinutesForSite(originAirport: Flight["originAirport"], rules: PlanningRules) {
-  return rules.siteOverrides?.[originAirport ?? ""]?.driveOutMinutes ?? rules.mainlineDriveOutMinutes;
+  return siteRules(originAirport, rules)?.driveOutMinutes ?? rules.mainlineDriveOutMinutes;
 }
 
 function returnMinutesForSite(originAirport: Flight["originAirport"], rules: PlanningRules) {
-  return rules.siteOverrides?.[originAirport ?? ""]?.returnMinutes ?? rules.mainlineReturnMinutes;
+  return siteRules(originAirport, rules)?.returnMinutes ?? rules.mainlineReturnMinutes;
 }
 
 function sealBreakMinutesForSite(originAirport: Flight["originAirport"], rules: PlanningRules) {
-  return rules.siteOverrides?.[originAirport ?? ""]?.sealBreakMinutes ?? 0;
+  return siteRules(originAirport, rules)?.sealBreakMinutes ?? 0;
 }
 
 function gateMoveMinutesForSite(originAirport: Flight["originAirport"], rules: PlanningRules) {
-  return rules.siteOverrides?.[originAirport ?? ""]?.gateToGateMoveMinutes ?? rules.gateToGateMoveMinutes;
+  return siteRules(originAirport, rules)?.gateToGateMoveMinutes ?? rules.gateToGateMoveMinutes;
+}
+
+function siteRules(originAirport: Flight["originAirport"], rules: PlanningRules) {
+  if (!originAirport) return undefined;
+  return rules.siteOverrides?.[originAirport.toUpperCase()];
 }
 
 function isUnitedFlight(flight: Flight) {
   return flight.serviceType === "load-ua" || /^UA/i.test(flight.flightNumber.replace(/^INTL STRIP\s+/i, "").trim());
-}
-
-function is757Aircraft(aircraft: string) {
-  return /(^|\s|-)75(7|2|3)|757/i.test(aircraft);
 }
 
 function validTime(time: string) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { maxScheduleFileBytes, maxScheduleRows, parseScheduleRows, validateScheduleFileMetadata } from "../src/import/scheduleImport";
+import { isVolareReferenceDateRequiredError, maxScheduleFileBytes, maxScheduleRows, parseScheduleRows, validateScheduleFileMetadata } from "../src/import/scheduleImport";
 
 describe("schedule import normalization", () => {
   it("normalizes standard airline schedule rows into dispatch-ready flights", () => {
@@ -80,6 +80,73 @@ describe("schedule import normalization", () => {
     assert.equal(result.flights[0]?.serviceType, "load-ua");
     assert.equal(result.flights[1]?.serviceType, "intl-strip");
     assert.match(result.flights[1]?.notes ?? "", /Strip: Strip/);
+  });
+
+  it("normalizes Volare actuals and calculates scheduled departures from delay", () => {
+    const result = parseScheduleRows([
+      ["NOTES", "TIME REMAIN DEP", "SPECIALS", "DEP GATE", "CARR (IATA)", "ORIG", "ETA IN", "FLIGHT IN", "GROUND TIME", "FLIGHT OUT", "DEP", "ARR", "AIRCRAFT", "ETD/ACT", "DELAY DEP", "FLIGHT STATUS", "FLEET TYPE", "MEL CODE"],
+      ["--", "--", " SSR", "F17", "UA", "BOS", "21:39", "2400-08", "02:22", "1815-08", "SFO", "BNA", "7525", "00:01", "00:02", "IN", "7M9", "A,1,C,I"],
+      ["--", "--", " SSR P", "F22", "UA", "HNL", "06:27", "1346-07", "18:17", "604-09", "SFO", "IAH", "2471", "00:44", "-00:01", "IN", "777", "A"],
+      ["--", "--", " SSR", "F9", "UA", "BOS", "02:17", "1200-09", "02:22", "419-09", "SFO2", "EWR", "7525", "06:07", "-00:03", "IN", "752", "A"],
+      ["--", "--", " SSR", "F10", "UA", "BOS", "02:17", "1200-09", "02:22", "1721-09", "SFO", "KOA", "7525", "08:11", "00:01", "IN", "753", "A"],
+    ], { referenceDate: "2026-06-08" });
+
+    assert.equal(result.detectedFormat, "volare");
+    assert.equal(result.normalizedRows.length, 4);
+    assert.equal(result.normalizedRows[0]?.departureDate, "2026-06-08");
+    assert.equal(result.normalizedRows[0]?.flightNumber, "1815");
+    assert.equal(result.normalizedRows[0]?.departureTime, "00:01");
+    assert.equal(result.normalizedRows[0]?.scheduledDepartureTime, "23:59");
+    assert.equal(result.normalizedRows[0]?.scheduledDepartureDayOffset, -1);
+    assert.equal(result.normalizedRows[0]?.departureDelayMinutes, 2);
+    assert.equal(result.flights[0]?.flightNumber, "UA1815");
+    assert.equal(result.flights[0]?.originAirport, "SFO");
+    assert.equal(result.flights[0]?.destinationAirport, "BNA");
+    assert.equal(result.flights[0]?.gate, "F17");
+    assert.equal(result.flights[0]?.actualDepartureTime, "00:01");
+    assert.equal(result.flights[0]?.scheduledDepartureTime, "23:59");
+    assert.equal(result.flights[0]?.scheduledDepartureDayOffset, -1);
+    assert.equal(result.flights[0]?.start, "22:36");
+    assert.equal(result.flights[1]?.departureDelayMinutes, -1);
+    assert.equal(result.flights[1]?.scheduledDepartureTime, "00:45");
+    assert.equal(result.flights[2]?.originAirport, "SFO");
+    assert.equal(result.flights[2]?.aircraft, "Boeing 757-200");
+    assert.equal(result.flights[3]?.aircraft, "Boeing 757-300");
+  });
+
+  it("resolves Volare day-only dates from deterministic report context", () => {
+    const headers = ["NOTES", "TIME REMAIN DEP", "SPECIALS", "DEP GATE", "CARR (IATA)", "ORIG", "ETA IN", "FLIGHT IN", "GROUND TIME", "FLIGHT OUT", "DEP", "ARR", "AIRCRAFT", "ETD/ACT", "DELAY DEP", "FLIGHT STATUS", "FLEET TYPE", "MEL CODE"];
+    const row = ["--", "--", "", "F17", "UA", "BOS", "21:39", "2400-30", "02:22", "1815-30", "SFO", "BNA", "7525", "23:59", "00:00", "IN", "7M9", ""];
+
+    const explicit = parseScheduleRows([headers, row], { referenceDate: "2026-07-01" });
+    assert.equal(explicit.normalizedRows[0]?.departureDate, "2026-06-30");
+
+    const preamble = parseScheduleRows([["Volare report generated 07/01/2026"], headers, row]);
+    assert.equal(preamble.normalizedRows[0]?.departureDate, "2026-06-30");
+
+    const filename = parseScheduleRows([headers, row], { sourceName: "SFO-volare-2026-07-01.xlsx" });
+    assert.equal(filename.normalizedRows[0]?.departureDate, "2026-06-30");
+  });
+
+  it("rejects Volare day-only dates when no full report date is available", () => {
+    let thrown: unknown;
+    try {
+      parseScheduleRows([
+        ["DEP GATE", "CARR (IATA)", "FLIGHT OUT", "DEP", "ARR", "ETD/ACT", "DELAY DEP", "FLEET TYPE"],
+        ["F17", "UA", "1815-08", "SFO", "BNA", "00:01", "00:02", "7M9"],
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(isVolareReferenceDateRequiredError(thrown), true);
+    assert.throws(
+      () => parseScheduleRows([
+        ["DEP GATE", "CARR (IATA)", "FLIGHT OUT", "DEP", "ARR", "ETD/ACT", "DELAY DEP", "FLEET TYPE"],
+        ["F17", "UA", "1815-08", "SFO", "BNA", "00:01", "00:02", "7M9"],
+      ]),
+      /full report date/i,
+    );
   });
 
   it("treats first Depart as date and second Depart as time in flight overview exports", () => {

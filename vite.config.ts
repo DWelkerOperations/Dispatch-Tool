@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
+const appBasePath = process.env.APP_BASE_PATH ?? (process.env.GITHUB_PAGES === "true" ? "/Resource-Planning/" : "/");
+
 function readVersion() {
   return readFileSync("VERSION", "utf8").trim();
 }
@@ -20,11 +22,12 @@ function readCommitHash() {
 }
 
 export default defineConfig({
-  base: process.env.APP_BASE_PATH ?? (process.env.GITHUB_PAGES === "true" ? "/Resource-Planning/" : "/"),
+  base: appBasePath,
   plugins: [react()],
   cacheDir: "/private/tmp/dispatch-tool-vite-cache",
   define: {
     __APP_VARIANT__: JSON.stringify(process.env.APP_VARIANT ?? "resource-planning"),
+    __APP_BASE_PATH__: JSON.stringify(appBasePath),
     __APP_VERSION__: JSON.stringify(readVersion()),
     __BUILD_COMMIT__: JSON.stringify(readCommitHash()),
     __BUILD_TIMESTAMP__: JSON.stringify(new Date().toISOString()),

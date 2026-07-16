@@ -53,6 +53,8 @@ export const planningRules: PlanningRules = {
     SFO: {
       driveOutMinutes: 15,
       returnMinutes: 15,
+      gateToGateMoveMinutes: 5,
+      sharedResourcePool: true,
     },
   },
   priorityOrder: [

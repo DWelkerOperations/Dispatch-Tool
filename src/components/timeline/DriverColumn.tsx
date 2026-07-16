@@ -29,6 +29,8 @@ export function DriverColumn({ drivers, pushes = [], driverLabelMode = "actual",
 }
 
 function sequentialDriverLabel(driver: Driver, fallbackIndex: number, sequenceCounts: { mainline: number; express: number; other: number }) {
+  if (driver.name.startsWith("Bullpen")) return driver.name;
+
   if (driver.id.startsWith("express-")) {
     sequenceCounts.express += 1;
     return `Express Driver ${sequenceCounts.express}`;

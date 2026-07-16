@@ -38,15 +38,22 @@ export function TopBar({
     : `Active Schedule: Sample ${activeAirport} flight schedule`;
 
   return (
-    <header className="no-print border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur">
+    <header className="no-print border-b border-slate-200 border-t-[3px] border-t-pride-red bg-white/95 px-6 py-4 backdrop-blur">
       <div className="mb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight text-ink">{appBranding.productName}</h1>
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-sm font-medium text-slate-500">{activeAirport}</span>
+        <div className="flex items-center gap-5">
+          <img
+            src={appBranding.logoPath}
+            alt="SkyChefs"
+            className="h-8 w-auto shrink-0"
+          />
+          <div className="border-l border-slate-200 pl-5">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight text-ink">{appBranding.productName}</h1>
+              <span className="h-2 w-2 rounded-full bg-pride-red" />
+              <span className="text-sm font-medium text-slate-500">{activeAirport}</span>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">{scheduleLabel}</p>
           </div>
-          <p className="mt-1 text-sm text-slate-500">{scheduleLabel}</p>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3">

@@ -8,6 +8,7 @@ const stableTabs: AppTab[] = ["resource-guide", "thumb-rules"];
 
 const betaTabs: AppTab[] = [
   "resource-guide",
+  "retrospective",
   "planning",
   "ord-planner",
   "dispatch",
@@ -21,6 +22,8 @@ const betaTabs: AppTab[] = [
 
 export const appBranding = {
   variant: appVariant,
+  companyName: "SkyChefs",
+  logoPath: `${__APP_BASE_PATH__}brand/skychefs-logo.svg`,
   productName: appVariant === "dispatch-tool-beta" ? "Dispatch Tool Beta" : "Resource Planning",
   footerName: appVariant === "dispatch-tool-beta" ? "Dispatch Tool Beta" : "Resource Planning",
   visibleTabs: appVariant === "dispatch-tool-beta" ? betaTabs : stableTabs,

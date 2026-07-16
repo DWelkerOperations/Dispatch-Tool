@@ -2,7 +2,7 @@ import type { AirportCode, FlightAssignment, ServiceType } from "../types/dispat
 import { normalizeAirportCode } from "../data/airports";
 import { aircraftInterpretations, normalizeAircraftType } from "./aircraftMap";
 
-export type ScheduleFormatId = "standard" | "combined-flight" | "flight-overview" | "operation-plan" | "ua-turns";
+export type ScheduleFormatId = "standard" | "combined-flight" | "flight-overview" | "operation-plan" | "ua-turns" | "volare";
 
 export type NormalizedScheduleRow = {
   sourceRowNumber: number;
@@ -15,7 +15,43 @@ export type NormalizedScheduleRow = {
   destination: string;
   inboundArrivalTime?: string;
   stripIdentifier?: string;
+  gate?: string;
+  actualDepartureTime?: string;
+  scheduledDepartureTime?: string;
+  scheduledDepartureDayOffset?: number;
+  departureDelayMinutes?: number;
+  departureDelayText?: string;
 };
+
+export type ScheduleParseOptions = {
+  /**
+   * Full report date used to resolve Volare's day-only `FLIGHT OUT` values.
+   * Accepts the same full-date formats as normal schedule rows.
+   */
+  referenceDate?: string;
+  /** Optional source label (normally the workbook filename) that may contain a full report date. */
+  sourceName?: string;
+};
+
+export const volareReferenceDateRequiredCode = "VOLARE_REFERENCE_DATE_REQUIRED" as const;
+
+export class VolareReferenceDateRequiredError extends Error {
+  readonly code = volareReferenceDateRequiredCode;
+
+  constructor() {
+    super("The Volare report only provides day-of-month values. Add the full report date (YYYY-MM-DD) to the filename or select a report reference date before importing.");
+    this.name = "VolareReferenceDateRequiredError";
+  }
+}
+
+export function isVolareReferenceDateRequiredError(error: unknown): error is VolareReferenceDateRequiredError {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "code" in error
+    && error.code === volareReferenceDateRequiredCode,
+  );
+}
 
 export type ScheduleImportResult = {
   detectedFormat: ScheduleFormatId;
@@ -30,11 +66,14 @@ export const maxScheduleFileBytes = 64 * 1024 * 1024;
 export const maxScheduleRows = 150000;
 
 type HeaderIndex = Record<string, number>;
+type FormatReadContext = {
+  referenceDate?: string;
+};
 type FormatDefinition = {
   id: ScheduleFormatId;
   label: string;
   match: (headers: HeaderIndex) => boolean;
-  read: (row: unknown[], sourceRowNumber: number, headers: HeaderIndex) => NormalizedScheduleRow;
+  read: (row: unknown[], sourceRowNumber: number, headers: HeaderIndex, context: FormatReadContext) => NormalizedScheduleRow;
 };
 
 type ScheduleFileMetadata = Pick<File, "name" | "size" | "type">;
@@ -50,6 +89,36 @@ const aircraftCodeSet = new Set(aircraftInterpretations.map((item) => item.input
 const aircraftNameSet = new Set(aircraftInterpretations.map((item) => item.standardName.toUpperCase()));
 
 const formatDefinitions: FormatDefinition[] = [
+  {
+    id: "volare",
+    label: "Volare actuals report",
+    match: (headers) => has(headers, "volareCarrier", "volareFlightOut", "volareOrigin", "volareDestination", "volareActualDepartureTime", "volareDepartureDelay", "volareFleetType"),
+    read: (row, sourceRowNumber, headers, context) => {
+      const flightOut = parseVolareFlightOut(cellText(row[headers.volareFlightOut]), context.referenceDate ?? "");
+      const actualDepartureTime = normalizeTime(cellText(row[headers.volareActualDepartureTime]));
+      const delayText = normalizeDelayText(cellText(row[headers.volareDepartureDelay]));
+      const delayMinutes = parseDelayMinutes(delayText);
+      const scheduledDeparture = actualDepartureTime && delayMinutes !== null
+        ? shiftClockTime(actualDepartureTime, -delayMinutes)
+        : null;
+      return normalizeSourceRow({
+        sourceRowNumber,
+        departureDate: flightOut.departureDate,
+        airline: cellText(row[headers.volareCarrier]),
+        flightNumber: flightOut.flightNumber,
+        departureTime: actualDepartureTime,
+        aircraftType: cellText(row[headers.volareFleetType]),
+        originSite: normalizeVolareOriginSite(cellText(row[headers.volareOrigin])),
+        destination: cellText(row[headers.volareDestination]),
+        gate: cellText(row[headers.volareGate]),
+        actualDepartureTime,
+        scheduledDepartureTime: scheduledDeparture?.time,
+        scheduledDepartureDayOffset: scheduledDeparture?.dayOffset,
+        ...(delayMinutes !== null ? { departureDelayMinutes: delayMinutes } : {}),
+        ...(delayText ? { departureDelayText: delayText } : {}),
+      });
+    },
+  },
   {
     id: "standard",
     label: "standard airline schedule",
@@ -204,7 +273,7 @@ function emptySourceRow(sourceRowNumber: number): NormalizedScheduleRow {
   };
 }
 
-export async function parseScheduleFile(file: File): Promise<ScheduleImportResult> {
+export async function parseScheduleFile(file: File, options: ScheduleParseOptions = {}): Promise<ScheduleImportResult> {
   validateScheduleFileMetadata(file);
   const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
@@ -218,7 +287,7 @@ export async function parseScheduleFile(file: File): Promise<ScheduleImportResul
   if (rows.length > maxScheduleRows) {
     throw new Error(`The schedule has too many rows. Upload a schedule with ${maxScheduleRows.toLocaleString()} rows or fewer.`);
   }
-  return parseScheduleRows(rows);
+  return parseScheduleRows(rows, { ...options, sourceName: options.sourceName ?? file.name });
 }
 
 export function validateScheduleFileMetadata(file: ScheduleFileMetadata) {
@@ -242,7 +311,7 @@ export function validateScheduleFileMetadata(file: ScheduleFileMetadata) {
   }
 }
 
-export function parseScheduleRows(rows: unknown[][]): ScheduleImportResult {
+export function parseScheduleRows(rows: unknown[][], options: ScheduleParseOptions = {}): ScheduleImportResult {
   if (rows.length > maxScheduleRows) {
     throw new Error(`The schedule has too many rows. Upload a schedule with ${maxScheduleRows.toLocaleString()} rows or fewer.`);
   }
@@ -251,6 +320,8 @@ export function parseScheduleRows(rows: unknown[][]): ScheduleImportResult {
   if (!detected) {
     throw new Error("Unknown schedule format. Include headers for date, flight or airline/flight number, departure time, aircraft, origin site, and destination.");
   }
+
+  const context = readContextForFormat(detected.definition.id, rows, detected.headerRowIndex, options);
 
   const warnings: string[] = [];
   const seenFlights = new Set<string>();
@@ -261,7 +332,7 @@ export function parseScheduleRows(rows: unknown[][]): ScheduleImportResult {
     const sourceRow = rows[index] ?? [];
     if (sourceRow.every((cell) => !cellText(cell))) continue;
 
-    const row = detected.definition.read(sourceRow, index + 1, detected.headers);
+    const row = detected.definition.read(sourceRow, index + 1, detected.headers, context);
     if (!isNonEmptyScheduleRow(row)) continue;
 
     const rowWarnings = validateNormalizedRow(row);
@@ -307,6 +378,49 @@ function detectScheduleFormat(rows: unknown[][]) {
   return null;
 }
 
+function readContextForFormat(format: ScheduleFormatId, rows: unknown[][], headerRowIndex: number, options: ScheduleParseOptions): FormatReadContext {
+  if (format !== "volare") return {};
+
+  if (options.referenceDate !== undefined) {
+    const referenceDate = normalizeDate(options.referenceDate);
+    if (!referenceDate) {
+      throw new Error(`Invalid Volare report reference date "${options.referenceDate}". Use a full date such as 2026-06-08.`);
+    }
+    return { referenceDate };
+  }
+
+  const preambleDate = rows
+    .slice(0, headerRowIndex)
+    .flatMap((row) => row)
+    .map((cell) => extractFullDate(cellText(cell)))
+    .find(Boolean);
+  const sourceDate = extractFullDate(options.sourceName ?? "");
+  const referenceDate = preambleDate || sourceDate;
+  if (!referenceDate) {
+    throw new VolareReferenceDateRequiredError();
+  }
+  return { referenceDate };
+}
+
+function extractFullDate(value: string) {
+  const directDate = normalizeDate(value);
+  if (directDate) return directDate;
+
+  const isoDate = value.match(/\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b/);
+  if (isoDate) {
+    const [, year, month, day] = isoDate;
+    return validDateParts(year, month, day) ? `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` : "";
+  }
+
+  const slashDate = value.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
+  if (slashDate) {
+    const [, month, day, year] = slashDate;
+    return validDateParts(year, month, day) ? `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` : "";
+  }
+
+  return "";
+}
+
 function buildHeaderIndex(headerRow: unknown[]) {
   const headers = headerRow.reduce<HeaderIndex>((currentHeaders, value, index) => {
     const key = headerAliases[normalizeHeader(value)];
@@ -340,6 +454,20 @@ function buildHeaderIndex(headerRow: unknown[]) {
     headers.uaTurnsDepartureTime = 10;
   }
 
+  const volareHeaderIndexes = {
+    volareGate: normalizedHeaders.indexOf("dep gate"),
+    volareCarrier: normalizedHeaders.indexOf("carr (iata)"),
+    volareFlightOut: normalizedHeaders.indexOf("flight out"),
+    volareOrigin: normalizedHeaders.indexOf("dep"),
+    volareDestination: normalizedHeaders.indexOf("arr"),
+    volareActualDepartureTime: normalizedHeaders.indexOf("etd/act"),
+    volareDepartureDelay: normalizedHeaders.indexOf("delay dep"),
+    volareFleetType: normalizedHeaders.indexOf("fleet type"),
+  };
+  Object.entries(volareHeaderIndexes).forEach(([key, index]) => {
+    if (index >= 0) headers[key] = index;
+  });
+
   return headers;
 }
 
@@ -349,6 +477,9 @@ function normalizeSourceRow(row: NormalizedScheduleRow): NormalizedScheduleRow {
   const unsupportedAircraft = row.aircraftType && !isSupportedAircraft(row.aircraftType);
   const inboundArrivalTime = row.inboundArrivalTime ? normalizeTime(row.inboundArrivalTime) : "";
   const stripIdentifier = row.stripIdentifier?.trim() ?? "";
+  const gate = row.gate?.trim().toUpperCase() ?? "";
+  const actualDepartureTime = row.actualDepartureTime ? normalizeTime(row.actualDepartureTime) : "";
+  const scheduledDepartureTime = row.scheduledDepartureTime ? normalizeTime(row.scheduledDepartureTime) : "";
 
   return {
     sourceRowNumber: row.sourceRowNumber,
@@ -361,6 +492,12 @@ function normalizeSourceRow(row: NormalizedScheduleRow): NormalizedScheduleRow {
     destination: row.destination.trim().toUpperCase(),
     ...(inboundArrivalTime ? { inboundArrivalTime } : {}),
     ...(stripIdentifier ? { stripIdentifier } : {}),
+    ...(gate ? { gate } : {}),
+    ...(actualDepartureTime ? { actualDepartureTime } : {}),
+    ...(scheduledDepartureTime ? { scheduledDepartureTime } : {}),
+    ...(row.scheduledDepartureDayOffset !== undefined ? { scheduledDepartureDayOffset: row.scheduledDepartureDayOffset } : {}),
+    ...(row.departureDelayMinutes !== undefined ? { departureDelayMinutes: row.departureDelayMinutes } : {}),
+    ...(row.departureDelayText ? { departureDelayText: row.departureDelayText } : {}),
   };
 }
 
@@ -382,17 +519,20 @@ function validateNormalizedRow(row: NormalizedScheduleRow) {
 
 function toFlightAssignment(row: NormalizedScheduleRow, index: number): FlightAssignment {
   const serviceType: ServiceType = row.stripIdentifier ? "intl-strip" : row.airline.toUpperCase() === "UA" ? "load-ua" : "load-other";
-  const start = addMinutes(row.departureTime, -85);
-  const end = addMinutes(row.departureTime, -35);
+  const start = addMinutesOnOperatingClock(row.departureTime, -85);
+  const end = addMinutesOnOperatingClock(row.departureTime, -35);
   const inboundNote = row.inboundArrivalTime ? ` Planned inbound arrival ${row.inboundArrivalTime}.` : "";
   const stripNote = row.stripIdentifier ? ` Strip: ${row.stripIdentifier}.` : "";
+  const delayNote = row.scheduledDepartureTime && row.actualDepartureTime
+    ? ` Scheduled ${row.scheduledDepartureTime}; actual ${row.actualDepartureTime}; delay ${formatSignedDelay(row.departureDelayMinutes ?? 0)}.`
+    : "";
 
   return {
     id: `import-${index + 1}`,
     driverId: null,
     flightNumber: `${row.airline}${row.flightNumber}`,
     departureDate: row.departureDate,
-    gate: row.destination || "TBD",
+    gate: row.gate || row.destination || "TBD",
     start,
     end,
     etd: row.departureTime,
@@ -402,7 +542,12 @@ function toFlightAssignment(row: NormalizedScheduleRow, index: number): FlightAs
     serviceType,
     originAirport: normalizeAirport(row.originSite),
     destinationAirport: row.destination,
-    notes: `Imported ${row.departureDate}. From ${row.originSite} to ${row.destination}.${inboundNote}${stripNote}`,
+    actualDepartureTime: row.actualDepartureTime,
+    scheduledDepartureTime: row.scheduledDepartureTime,
+    scheduledDepartureDayOffset: row.scheduledDepartureDayOffset,
+    departureDelayMinutes: row.departureDelayMinutes,
+    departureDelayText: row.departureDelayText,
+    notes: `Imported ${row.departureDate}. From ${row.originSite} to ${row.destination}.${inboundNote}${stripNote}${delayNote}`,
   };
 }
 
@@ -477,10 +622,76 @@ function normalizeTime(value: string) {
   return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
 
-function addMinutes(time: string, minutesToAdd: number) {
+function normalizeDelayText(value: string) {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(-?)(\d{1,2}):(\d{2})$/);
+  if (!match) return trimmed;
+  const [, sign, hours, minutes] = match;
+  return `${sign}${hours.padStart(2, "0")}:${minutes}`;
+}
+
+function normalizeVolareOriginSite(value: string) {
+  return value.trim().toUpperCase() === "SFO2" ? "SFO" : value;
+}
+
+function parseDelayMinutes(value: string) {
+  const match = value.match(/^(-?)(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const [, sign, hours, minutes] = match;
+  const total = Number(hours) * 60 + Number(minutes);
+  return sign === "-" ? -total : total;
+}
+
+function formatSignedDelay(minutes: number) {
+  const sign = minutes < 0 ? "-" : "";
+  const absoluteMinutes = Math.abs(minutes);
+  return `${sign}${String(Math.floor(absoluteMinutes / 60)).padStart(2, "0")}:${String(absoluteMinutes % 60).padStart(2, "0")}`;
+}
+
+function addMinutesOnOperatingClock(time: string, minutesToAdd: number) {
   const [hours, minutes] = time.split(":").map(Number);
-  const total = Math.max(0, hours * 60 + minutes + minutesToAdd);
+  let total = hours * 60 + minutes + minutesToAdd;
+  while (total < 0) total += 1440;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function shiftClockTime(time: string, minutesToAdd: number) {
+  const [hours, minutes] = time.split(":").map(Number);
+  const total = hours * 60 + minutes + minutesToAdd;
+  const dayOffset = Math.floor(total / 1440);
+  const normalized = total - dayOffset * 1440;
+  return {
+    time: `${String(Math.floor(normalized / 60)).padStart(2, "0")}:${String(normalized % 60).padStart(2, "0")}`,
+    dayOffset,
+  };
+}
+
+function parseVolareFlightOut(value: string, referenceDate: string) {
+  const match = value.trim().match(/^([A-Z0-9]+)-(\d{1,2})$/i);
+  if (!match) return { flightNumber: value.trim(), departureDate: "" };
+  const [, flightNumber, day] = match;
+  return {
+    flightNumber,
+    departureDate: inferDateFromDayOfMonth(day, referenceDate),
+  };
+}
+
+function inferDateFromDayOfMonth(dayValue: string, referenceDate: string) {
+  const day = Number(dayValue);
+  if (!Number.isInteger(day) || day < 1 || day > 31) return "";
+
+  const [referenceYear, referenceMonth, referenceDay] = referenceDate.split("-").map(Number);
+  if (!referenceYear || !referenceMonth || !referenceDay) return "";
+  const referenceTimestamp = Date.UTC(referenceYear, referenceMonth - 1, referenceDay);
+  const candidates = [-1, 0, 1]
+    .map((monthOffset) => {
+      const candidate = new Date(Date.UTC(referenceYear, referenceMonth - 1 + monthOffset, day));
+      return candidate.getUTCDate() === day ? candidate : null;
+    })
+    .filter((candidate): candidate is Date => Boolean(candidate));
+  const closest = candidates.sort((a, b) => Math.abs(a.getTime() - referenceTimestamp) - Math.abs(b.getTime() - referenceTimestamp))[0];
+  if (!closest) return "";
+  return `${closest.getUTCFullYear()}-${String(closest.getUTCMonth() + 1).padStart(2, "0")}-${String(closest.getUTCDate()).padStart(2, "0")}`;
 }
 
 function isValidTime(time: string) {

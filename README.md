@@ -6,6 +6,10 @@ Modern frontend prototype for airline catering transportation resource planning.
 
 V1.1 is the current Resource Planning deployment baseline. It is configured for GitHub Pages and includes a public-prototype notice before the planning workspace opens.
 
+## Current Beta Work
+
+The Dispatch Tool Beta adds the current SkyChefs identity, Volare actuals import, scheduled-versus-actual retrospective planning, editable ORD start waves, fixed-resource staffing review, and manual planning controls. The approved SkyChefs wordmark is stored at `public/brand/skychefs-logo.svg`; do not replace it with the legacy LSG globe logo or alter the asset.
+
 ## v1.0 Baseline
 
 Dispatch Tool v1.0 is the stable generic dispatch/resource planner prototype baseline, anchored at commit `9cd1e6f` (`Stabilize generic dispatch planner prototype`). It is a return point for future work, not a finished production system.
@@ -17,6 +21,8 @@ Dispatch Tool v1.0 is the stable generic dispatch/resource planner prototype bas
 - Excel schedule import
 - Resource Guide for imported/sample schedules, recommended resource starts, pairing quality, risk definitions, timeline, push plan, exceptions, and Excel export
 - Planning Tool for full-day pairing/resource-plan review
+- Retrospective planning for comparing scheduled and actual departure demand from a confirmed Volare report month
+- ORD Planner with dynamic, fixed, and Goal-staffing start-wave modes
 - Dispatch Tool for loading a planning result or recalculating from available resource counts
 - Staffing, Fleet, Exceptions, Dashboard, Tour Sheet, and Thumb Rules views
 - Thumb-rule driven resource guidance
@@ -83,7 +89,7 @@ Deployment behavior:
 - Viewers do not need a GitHub account or GitHub login.
 - The stable shared page updates only after code is committed and pushed to `main`.
 - The beta page updates after code is committed and pushed to `v1.1Beta`.
-- The GitHub Actions workflow installs dependencies, runs typecheck/lint/audit/tests, builds stable Resource Planning with the `/Resource-Planning/` base path, builds Dispatch Tool Beta with the `/Resource-Planning/dispatch-tool-beta/` base path when the beta branch exists, and publishes both into one Pages artifact. The legacy `/Resource-Planning/v1.1Beta/` URL is also retained as a beta alias.
+- The GitHub Actions workflow requires the `v1.1Beta` branch, installs dependencies, runs typecheck/lint/audit/tests, builds stable Resource Planning with the `/Resource-Planning/` base path, builds Dispatch Tool Beta with the `/Resource-Planning/dispatch-tool-beta/` base path, and publishes both into one Pages artifact. The legacy `/Resource-Planning/v1.1Beta/` URL is also retained as a beta alias.
 - Old `/Dispatch-Tool/` GitHub Pages links should be treated as legacy links and redirected to `/Resource-Planning/` through the `DWelkerOperations.github.io` Pages fallback.
 - Use `workflow_dispatch` from GitHub Actions if a manual redeploy of the current `main` commit is needed.
 
@@ -124,7 +130,9 @@ This is lightweight safety friction only. It is not security, authentication, au
 
 ## Schedule import guardrails
 
-The browser importer accepts `.xlsx` and `.xls` workbooks up to 8 MB, rejects empty files, rejects unrecognized MIME types when provided by the browser, rejects workbooks with more than 20 sheets, and rejects parsed schedules with more than 25,000 rows. These guardrails reduce accidental browser crashes and adversarial file risk, but they do not make untrusted workbook parsing safe.
+The browser importer accepts `.xlsx` and `.xls` workbooks up to 64 MB, rejects empty files, rejects unrecognized MIME types when provided by the browser, rejects workbooks with more than 20 sheets, and rejects parsed schedules with more than 150,000 rows. The larger limits support approved monthly reference workbooks such as TripMaster. These guardrails reduce accidental browser crashes and adversarial file risk, but they do not make untrusted workbook parsing safe; large workbooks can still pause or exhaust a browser tab.
+
+Volare exports encode a day of month in the outbound-flight value but do not provide enough information to infer the historical month and year safely. The importer therefore requires the report month to be reviewed before loading Volare actuals. Scheduled departure comparisons preserve the operating-day offset when a delay crosses midnight.
 
 The production dependency audit script ignores the two known `xlsx@0.18.5` advisories while this parser replacement remains open; new high-severity production advisories should still fail `pnpm security:audit`.
 

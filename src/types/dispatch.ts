@@ -1,6 +1,7 @@
 export type AppTab =
   | "planning"
   | "resource-guide"
+  | "retrospective"
   | "ord-planner"
   | "dispatch"
   | "staffing"
@@ -67,6 +68,11 @@ export type FlightAssignment = {
   serviceType: ServiceType;
   originAirport?: AirportCode;
   destinationAirport?: string;
+  actualDepartureTime?: string;
+  scheduledDepartureTime?: string;
+  scheduledDepartureDayOffset?: number;
+  departureDelayMinutes?: number;
+  departureDelayText?: string;
   notes: string;
   edited?: boolean;
   overtime?: boolean;
@@ -274,6 +280,7 @@ export type ManualPlanState = ManualPlanSnapshot & {
 export type PairingStrategy = {
   targetThreeFlightPairingPercent: number;
   allowUrgentPairings?: boolean;
+  avoidWatchPairings?: boolean;
 };
 
 export type StaffRole = "Driver" | "Helper";

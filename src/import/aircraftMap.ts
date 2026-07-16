@@ -15,6 +15,8 @@ export const aircraftInterpretations: AircraftInterpretation[] = [
   { inputName: "7M9", standardName: "Boeing 737 MAX 9", category: "narrowbody", preferredOnMinutes: 50, serviceMinutes: 25, truckRule: "1 truck" },
   { inputName: "73W", standardName: "Boeing 737-700", category: "narrowbody", preferredOnMinutes: 50, serviceMinutes: 25, truckRule: "1 truck" },
   { inputName: "757", standardName: "Boeing 757", category: "narrowbody", preferredOnMinutes: 65, serviceMinutes: 40, truckRule: "1 truck" },
+  { inputName: "752", standardName: "Boeing 757-200", category: "narrowbody", preferredOnMinutes: 65, serviceMinutes: 40, truckRule: "1 truck" },
+  { inputName: "753", standardName: "Boeing 757-300", category: "narrowbody", preferredOnMinutes: 65, serviceMinutes: 40, truckRule: "1 truck" },
   { inputName: "75B", standardName: "Boeing 757-200", category: "narrowbody", preferredOnMinutes: 65, serviceMinutes: 40, truckRule: "1 truck" },
   { inputName: "75E", standardName: "Boeing 757-200", category: "narrowbody", preferredOnMinutes: 65, serviceMinutes: 40, truckRule: "1 truck" },
   { inputName: "75S", standardName: "Boeing 757-200", category: "narrowbody", preferredOnMinutes: 65, serviceMinutes: 40, truckRule: "1 truck" },

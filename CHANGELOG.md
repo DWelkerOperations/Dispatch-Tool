@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased - Dispatch Tool Beta Stabilization
+
+### Added
+
+- Current approved SkyChefs wordmark and Pride Red application accents.
+- Volare actuals import and scheduled-versus-actual retrospective planning.
+- Editable ORD fixed start waves and fixed-resource Goal staffing.
+- SFO shared-resource planning across mainline and express work.
+
+### Corrected
+
+- Fixed-resource shortages remain visible instead of cascading assignments beyond the supported operating day.
+- Retrospective time comparisons preserve midnight operating-day offsets.
+- Volare report dates require deterministic month/year context rather than inference from the computer clock.
+- Manual-control summary and overlap validation stay aligned after edits.
+
+### Known Prototype Constraints
+
+- Approved TripMaster reference data remains embedded for the beta review workflow and increases the initial bundle size.
+- Excel parsing still uses `xlsx@0.18.5` with the documented prototype guardrails and ignored known advisories.
+
 ## v1.0 - Stable Generic Dispatch Planner Baseline
 
 Baseline commit: `9cd1e6f` (`Stabilize generic dispatch planner prototype`)

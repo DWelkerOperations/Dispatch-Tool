@@ -95,6 +95,48 @@ describe("scheduler", () => {
     assert.deepEqual(result.pushes.map((push) => push.flights.length), [3, 3]);
   });
 
+  it("keeps watch-risk flights standalone when protected staffing is requested", () => {
+    const flights = [
+      flight({ id: "watch-1", flightNumber: "UA301", aircraft: "737", etd: "10:00", gate: "A1", originAirport: "ABC" }),
+      flight({ id: "watch-2", flightNumber: "UA302", aircraft: "737", etd: "11:30", gate: "A2", originAirport: "ABC" }),
+    ];
+    const normal = createPlanningSchedule(flights, baseDrivers, baseHelpers, baseTrucks, {
+      rules: planningRules,
+      operationType: "mainline",
+      pairingStrategy: { targetThreeFlightPairingPercent: 80 },
+    });
+    const protectedResult = createPlanningSchedule(flights, baseDrivers, baseHelpers, baseTrucks, {
+      rules: planningRules,
+      operationType: "mainline",
+      pairingStrategy: { targetThreeFlightPairingPercent: 80, avoidWatchPairings: true },
+    });
+
+    assert.equal(normal.pushes.length, 1);
+    assert.equal(normal.pushes[0]?.riskSeverity, "watch");
+    assert.equal(protectedResult.pushes.length, 2);
+    assert.ok(protectedResult.pushes.every((push) => push.flights.length === 1));
+  });
+
+  it("spreads fixed-resource work across the least-used legal shifts", () => {
+    const result = createPlanningSchedule(
+      [
+        flight({ id: "spread-1", flightNumber: "UA401", aircraft: "737", etd: "10:00", gate: "A1", originAirport: "ABC" }),
+        flight({ id: "spread-2", flightNumber: "UA402", aircraft: "737", etd: "14:00", gate: "A2", originAirport: "ABC" }),
+      ],
+      baseDrivers,
+      baseHelpers,
+      baseTrucks,
+      {
+        rules: planningRules,
+        operationType: "mainline",
+        assignmentStrategy: "spread",
+      },
+    );
+
+    assert.equal(result.summary.driversRequired, 2);
+    assert.equal(new Set(result.pushes.map((push) => push.driverId)).size, 2);
+  });
+
   it("opens a fresh legal shift when reuse would be inefficient", () => {
     const drivers: Driver[] = [
       { id: "d-early", name: "Early Driver", truck: "T1", radio: "R1", shiftStart: "06:00", shiftEnd: "16:30" },
@@ -224,6 +266,19 @@ describe("scheduler", () => {
     assert.ok(result.summary.unscheduledFlights > 0);
   });
 
+  it("counts mainline work without required helper coverage as unscheduled", () => {
+    const result = createPlanningSchedule(
+      [flight({ aircraft: "737", etd: "10:00", originAirport: "ABC" })],
+      baseDrivers,
+      [],
+      baseTrucks,
+      { rules: planningRules, operationType: "mainline" },
+    );
+
+    assert.equal(result.summary.unscheduledFlights, 1);
+    assert.ok(result.exceptions.some((exception) => exception.cause === "helper-shortage"));
+  });
+
   it("stretches constrained dispatch headcount into overtime instead of dropping paired flights", () => {
     const constrainedDrivers: Driver[] = [
       { id: "d1", name: "Driver 1", truck: "T1", radio: "R1", shiftStart: "06:00", shiftEnd: "14:00" },
@@ -246,6 +301,35 @@ describe("scheduler", () => {
     assert.equal(result.summary.unscheduledFlights, 0);
     assert.equal(result.pushes.every((push) => push.driverId === "d1"), true);
     assert.ok(result.pushes.some((push) => push.riskFlags.includes("Shift exceeds standard shift span")));
+  });
+
+  it("reports fixed-resource shortages instead of shifting work beyond the operating day", () => {
+    const crowdedFlights = Array.from({ length: 120 }, (_, index) => flight({
+      id: `overflow-${index + 1}`,
+      flightNumber: `UA${1000 + index}`,
+      aircraft: "737",
+      etd: "12:00",
+      gate: `A${index + 1}`,
+      originAirport: "ORD",
+    }));
+
+    const result = createPlanningSchedule(
+      crowdedFlights,
+      [{ id: "fixed-driver", name: "Fixed Driver", truck: "T1", radio: "R1", shiftStart: "03:00", shiftEnd: "11:30" }],
+      [{ id: "fixed-helper", name: "Fixed Helper", shiftStart: "03:00", shiftEnd: "11:30" }],
+      [{ id: "fixed-truck", truckNumber: "T1" }],
+      {
+        rules: planningRules,
+        operationType: "mainline",
+        allowShiftOverflow: true,
+        assignmentStrategy: "spread",
+      },
+    );
+
+    assert.ok(result.summary.unscheduledFlights > 0);
+    assert.ok(result.pushes.some((push) => push.riskFlags.includes("Driver coverage short")));
+    assert.ok(result.exceptions.some((exception) => exception.cause === "driver-shortage"));
+    assert.ok(result.pushes.every((push) => timeValue(push.returnTime) <= 47 * 60 + 59));
   });
 
   it("keeps widebody flights as standalone protected pushes", () => {
@@ -283,6 +367,28 @@ describe("scheduler", () => {
 
     assert.ok(push);
     assert.equal(minutesBetween(push.kitchenDepartureTime, push.arriveFirstGateTime), 45);
+  });
+
+  it("uses the configured generic return time independently of drive-out time", () => {
+    const rules: PlanningRules = {
+      ...planningRules,
+      mainlineDriveOutMinutes: 15,
+      mainlineReturnMinutes: 25,
+    };
+    const result = createPlanningSchedule(
+      [flight({ originAirport: "XYZ", etd: "12:00" })],
+      baseDrivers,
+      baseHelpers,
+      baseTrucks,
+      { rules, operationType: "mainline" },
+    );
+    const push = result.pushes[0];
+    const finalServiceEnd = push?.serviceEvents[push.serviceEvents.length - 1]?.serviceEnd;
+
+    assert.ok(push);
+    assert.ok(finalServiceEnd);
+    assert.equal(minutesBetween(push.kitchenDepartureTime, push.arriveFirstGateTime), 15);
+    assert.equal(minutesBetween(finalServiceEnd, push.returnTime), 25);
   });
 
   it("uses ORD 30 minute drive, 30 minute return, and 10 minutes between catered flights", () => {
@@ -386,6 +492,22 @@ describe("scheduler", () => {
 
     assert.ok(result.pushes.length > 0);
     assert.ok(result.pushes.every((push) => !push.id.startsWith("M-") && !push.id.startsWith("E-")));
+  });
+
+  it("uses one shared SFO resource pool across mainline and express", () => {
+    const result = createPlanningSchedule(
+      [
+        flight({ id: "mainline", flightNumber: "UA200", aircraft: "737", originAirport: "SFO", etd: "12:00" }),
+        flight({ id: "express", flightNumber: "UA201", aircraft: "CRJ", originAirport: "SFO", etd: "12:20" }),
+      ],
+      baseDrivers,
+      baseHelpers,
+      baseTrucks,
+      { rules: planningRules },
+    );
+
+    assert.ok(result.pushes.every((push) => !push.id.startsWith("M-") && !push.id.startsWith("E-")));
+    assert.equal(result.summary.totalFlights, 2);
   });
 
   it("requires only a 30 minute lunch gap without a protected window", () => {

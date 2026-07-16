@@ -6,7 +6,17 @@ import { Badge } from "../ui/Badge";
 import { KpiCard } from "../ui/KpiCard";
 import { Panel } from "../ui/Panel";
 
-export function ScheduleSummaryCards({ result, drivers = [] }: { result: ScheduleResult; drivers?: Driver[] }) {
+export function ScheduleSummaryCards({
+  result,
+  drivers = [],
+  configuredDriverCount,
+  configuredHelperCount,
+}: {
+  result: ScheduleResult;
+  drivers?: Driver[];
+  configuredDriverCount?: number;
+  configuredHelperCount?: number;
+}) {
   const summary = result.summary;
   const overtime = overtimeSummaryForDrivers(drivers, result);
 
@@ -15,33 +25,54 @@ export function ScheduleSummaryCards({ result, drivers = [] }: { result: Schedul
       <KpiCard label="Flights" value={String(summary.totalFlights)} />
       <KpiCard label="Strip Tasks" value={String(summary.totalStripTasks)} />
       <KpiCard label="Pushes" value={String(summary.totalPushes)} />
-      <KpiCard label="Drivers" value={String(summary.driversRequired)} />
-      <KpiCard label="Helpers" value={String(summary.helpersRequired)} />
+      <KpiCard
+        label={configuredDriverCount === undefined ? "Drivers" : "Drivers Used"}
+        value={String(summary.driversRequired)}
+        helper={configuredDriverCount === undefined ? undefined : `${configuredDriverCount} configured`}
+      />
+      <KpiCard
+        label={configuredHelperCount === undefined ? "Helpers" : "Helpers Used"}
+        value={String(summary.helpersRequired)}
+        helper={configuredHelperCount === undefined ? undefined : `${configuredHelperCount} configured`}
+      />
       <KpiCard label="Peak Trucks" value={String(summary.maxTrucksRequired)} />
       <KpiCard label="OT Drivers" value={String(overtime.driverCount)} helper={`${formatHours(overtime.totalMinutes)} hr`} />
+      <KpiCard label="OT %" value={formatPercent(overtime.percent)} helper="of scheduled driver time" />
       <KpiCard label="Shift Utilization" value={`${summary.shiftUtilizationPercent}%`} />
       <KpiCard label="Normal" value={String(summary.flightsScheduledNormally)} />
       <KpiCard label="Exception Flights" value={String(summary.flightsWithExceptions)} helper="Flight/task count" />
-      <KpiCard label="Watch Pushes" value={String(summary.watchPushes)} helper="Push count" />
-      <KpiCard label="Urgent Pushes" value={String(summary.urgentPushes)} helper="Push count" />
-      <KpiCard label="Critical Pushes" value={String(summary.criticalPushes)} helper="Push count" />
+      <KpiCard label="Watch Timing" value={String(summary.watchPushes)} helper="Timing flags" />
+      <KpiCard label="Urgent Timing" value={String(summary.urgentPushes)} helper="Timing flags" />
+      <KpiCard label="Critical Timing" value={String(summary.criticalPushes)} helper="Timing flags" />
     </div>
   );
 }
 
 function overtimeSummaryForDrivers(drivers: Driver[], result: ScheduleResult) {
-  const overtime = drivers
-    .map((driver) => plannedShiftForDriver(driver, result.pushes.filter((push) => resourceIds(push.driverId).includes(driver.id))).overflowMinutes)
-    .filter((minutes) => minutes > 0);
+  const shifts = drivers.map((driver) => {
+    const planned = plannedShiftForDriver(driver, result.pushes.filter((push) => resourceIds(push.driverId).includes(driver.id)));
+    return {
+      scheduledMinutes: Math.max(0, planned.endMinutes - planned.startMinutes),
+      overflowMinutes: planned.overflowMinutes,
+    };
+  });
+  const overtime = shifts.map((shift) => shift.overflowMinutes).filter((minutes) => minutes > 0);
+  const scheduledMinutes = shifts.reduce((total, shift) => total + shift.scheduledMinutes, 0);
+  const totalMinutes = overtime.reduce((total, minutes) => total + minutes, 0);
 
   return {
     driverCount: overtime.length,
-    totalMinutes: overtime.reduce((total, minutes) => total + minutes, 0),
+    totalMinutes,
+    percent: scheduledMinutes > 0 ? (totalMinutes / scheduledMinutes) * 100 : 0,
   };
 }
 
 function formatHours(minutes: number) {
   return (minutes / 60).toFixed(minutes % 60 === 0 ? 0 : 1);
+}
+
+function formatPercent(value: number) {
+  return `${value.toFixed(value >= 10 || value === 0 ? 0 : 1)}%`;
 }
 
 export function PushTable({ result }: { result: ScheduleResult }) {

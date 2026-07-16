@@ -6,6 +6,7 @@ export default {
       colors: {
         ink: "#172033",
         mist: "#f6f8fb",
+        "pride-red": "#ed2630",
       },
       boxShadow: {
         soft: "0 18px 50px rgba(22, 32, 51, 0.08)",

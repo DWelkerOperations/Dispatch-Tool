@@ -3,6 +3,7 @@ import type { AppTab } from "../../types/dispatch";
 
 const tabs: { id: AppTab; label: string }[] = [
   { id: "resource-guide", label: "Resource Guide" },
+  { id: "retrospective", label: "Retrospective" },
   { id: "planning", label: "Planning Tool" },
   { id: "ord-planner", label: "ORD Planner" },
   { id: "dispatch", label: "Dispatch Tool" },
@@ -28,7 +29,7 @@ export function TabNav({ activeTab, onTabChange }: TabNavProps) {
           onClick={() => onTabChange(tab.id)}
           className={`rounded-full px-3 py-2 text-sm font-medium transition ${
             activeTab === tab.id
-              ? "bg-ink text-white shadow-sm"
+              ? "bg-pride-red text-white shadow-sm"
               : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
           }`}
         >

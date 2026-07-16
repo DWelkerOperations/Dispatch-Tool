@@ -60,7 +60,7 @@ export function AppShell({
           />
           <div className="min-h-0 flex-1 overflow-auto p-5">{children}</div>
           <footer className="border-t border-slate-200 bg-white/80 px-5 py-3 text-xs text-slate-500">
-            V{__APP_VERSION__} {appBranding.footerName} | Commit {__BUILD_COMMIT__} | Built{" "}
+            {appBranding.companyName} · V{__APP_VERSION__} {appBranding.footerName} | Commit {__BUILD_COMMIT__} | Built{" "}
             {new Intl.DateTimeFormat("en", {
               dateStyle: "medium",
               timeStyle: "short",

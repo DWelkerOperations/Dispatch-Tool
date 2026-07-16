@@ -4,7 +4,8 @@ import { DashboardPage } from "./components/tabs/DashboardPage";
 import { DispatchToolPage } from "./components/tabs/DispatchToolPage";
 import { ExceptionsPage } from "./components/tabs/ExceptionsPage";
 import { FleetPage } from "./components/tabs/FleetPage";
-import { PlanningToolPage } from "./components/tabs/PlanningToolPage";
+import { PlanningToolPage, type FixedStartResource } from "./components/tabs/PlanningToolPage";
+import { RetrospectivePage, type RetrospectiveTimeMode } from "./components/tabs/RetrospectivePage";
 import { StaffingPage } from "./components/tabs/StaffingPage";
 import { ThumbRulesPage } from "./components/tabs/ThumbRulesPage";
 import { TourSheetPage } from "./components/tabs/TourSheetPage";
@@ -16,7 +17,7 @@ import { appBranding, isVisibleAppTab } from "./config/appBranding";
 import type { AirportCode, AppTab, FlightAssignment, OperationView, PlanningRules, ScheduleResult } from "./types/dispatch";
 import type { FlightTaskTypeChange } from "./utils/taskTypeUpdates";
 
-type PlannerTabId = Extract<AppTab, "planning" | "resource-guide" | "ord-planner">;
+type PlannerTabId = Extract<AppTab, "planning" | "resource-guide" | "retrospective" | "ord-planner">;
 type OrdPlannerStartTimeMode = "dynamic" | "fixed" | "fixed-resource";
 
 type PlannerState = {
@@ -30,6 +31,10 @@ type PlannerState = {
   result: ScheduleResult | null;
   maxStartTimes?: number;
   startTimeMode?: OrdPlannerStartTimeMode;
+  fixedStartTimes?: string[];
+  fixedStartResources?: FixedStartResource[];
+  retrospectiveTimeMode?: RetrospectiveTimeMode;
+  retrospectiveResults?: Partial<Record<RetrospectiveTimeMode, ScheduleResult | null>>;
 };
 
 type PlannerScheduleSnapshot = Pick<PlannerState, "airport" | "date" | "flights" | "fileName">;
@@ -45,16 +50,40 @@ const initialPlannerState: PlannerState = {
   result: null,
 };
 
+const ordFixedStartTimes = ["02:00", "03:00", "04:00", "06:00", "11:00", "12:00", "13:00", "14:00", "15:00", "18:30", "22:00"];
+const defaultRetrospectiveStartResources: FixedStartResource[] = [
+  { startTime: "03:00", resources: 3 },
+  { startTime: "04:00", resources: 5 },
+  { startTime: "05:00", resources: 9 },
+  { startTime: "06:00", resources: 5 },
+  { startTime: "07:00", resources: 3 },
+  { startTime: "08:00", resources: 2 },
+  { startTime: "11:00", resources: 2 },
+  { startTime: "14:00", resources: 7 },
+  { startTime: "15:00", resources: 1 },
+  { startTime: "16:00", resources: 10 },
+  { startTime: "17:00", resources: 2 },
+];
+
 const initialPlanners: Record<PlannerTabId, PlannerState> = {
   planning: initialPlannerState,
   "resource-guide": {
     ...initialPlannerState,
     maxStartTimes: 12,
   },
+  retrospective: {
+    ...initialPlannerState,
+    maxStartTimes: 12,
+    operationType: "all",
+    retrospectiveTimeMode: "actual",
+    retrospectiveResults: {},
+    fixedStartResources: defaultRetrospectiveStartResources,
+  },
   "ord-planner": {
     ...initialPlannerState,
     maxStartTimes: 12,
     startTimeMode: "dynamic",
+    fixedStartTimes: ordFixedStartTimes,
   },
 };
 
@@ -65,6 +94,7 @@ export default function App() {
   const activePlannerTab = isPlannerTab(activeTab) ? activeTab : "planning";
   const planning = planners.planning;
   const resourceGuide = planners["resource-guide"];
+  const retrospective = planners.retrospective;
   const ordPlanner = planners["ord-planner"];
   const planningVisibleFlights = useMemo(
     () => planning.flights.filter((flight) => flightMatchesSelectedSchedule(flight, planning.airport, planning.date)),
@@ -78,9 +108,14 @@ export default function App() {
     () => ordPlanner.flights.filter((flight) => flightMatchesSelectedSchedule(flight, ordPlanner.airport, ordPlanner.date)),
     [ordPlanner.airport, ordPlanner.date, ordPlanner.flights],
   );
+  const retrospectiveVisibleFlights = useMemo(
+    () => retrospective.flights.filter((flight) => flightMatchesSelectedSchedule(flight, retrospective.airport, retrospective.date)),
+    [retrospective.airport, retrospective.date, retrospective.flights],
+  );
   const visibleFlightsByTab: Record<PlannerTabId, FlightAssignment[]> = {
     planning: planningVisibleFlights,
     "resource-guide": resourceGuideVisibleFlights,
+    retrospective: retrospectiveVisibleFlights,
     "ord-planner": ordPlannerVisibleFlights,
   };
   const activeSchedule = {
@@ -121,6 +156,8 @@ export default function App() {
       customSchedule,
       referenceScheduleId: "",
       result: null,
+      operationType: activePlannerTab === "retrospective" ? "all" : currentPlanner.operationType,
+      retrospectiveResults: activePlannerTab === "retrospective" ? {} : currentPlanner.retrospectiveResults,
     });
   }
 
@@ -133,11 +170,16 @@ export default function App() {
       airport: ordJuneTripmasterDefaultAirport,
       date: ordJuneTripmasterDefaultDate,
       result: null,
+      retrospectiveResults: activePlannerTab === "retrospective" ? {} : planners[activePlannerTab].retrospectiveResults,
     });
   }
 
   function handleAirportChange(airport: AirportCode) {
-    updatePlanner(activePlannerTab, { airport, result: null });
+    updatePlanner(activePlannerTab, {
+      airport,
+      result: null,
+      ...(activePlannerTab === "retrospective" ? { retrospectiveResults: {} } : {}),
+    });
   }
 
   function handleReferenceScheduleLoad(schedule: ReferenceSchedule) {
@@ -148,6 +190,7 @@ export default function App() {
       airport: schedule.airport,
       date: schedule.date,
       result: null,
+      ...(activePlannerTab === "retrospective" ? { retrospectiveResults: {} } : {}),
     });
   }
 
@@ -158,6 +201,7 @@ export default function App() {
       ...customSchedule,
       referenceScheduleId: "",
       result: null,
+      ...(activePlannerTab === "retrospective" ? { retrospectiveResults: {} } : {}),
     });
   }
 
@@ -185,6 +229,10 @@ export default function App() {
     updatePlanner("ord-planner", { startTimeMode: mode, result: null });
   }
 
+  function handleOrdPlannerFixedStartTimesChange(fixedStartTimes: string[]) {
+    updatePlanner("ord-planner", { fixedStartTimes, result: null });
+  }
+
   function handleOperationTypeChange(tabId: PlannerTabId, operationType: OperationView) {
     updatePlanner(tabId, { operationType });
   }
@@ -210,8 +258,47 @@ export default function App() {
     setPlanners((current) => ({
       planning: { ...current.planning, result: null },
       "resource-guide": { ...current["resource-guide"], result: null },
+      retrospective: { ...current.retrospective, result: null, retrospectiveResults: {} },
       "ord-planner": { ...current["ord-planner"], result: null },
     }));
+  }
+
+  function handleRetrospectiveDateChange(date: string) {
+    updatePlanner("retrospective", { date, result: null, retrospectiveResults: {} });
+  }
+
+  function handleRetrospectiveFixedStartResourcesChange(fixedStartResources: FixedStartResource[]) {
+    updatePlanner("retrospective", {
+      fixedStartResources,
+      result: null,
+      retrospectiveResults: {},
+    });
+  }
+
+  function handleRetrospectiveTimeModeChange(retrospectiveTimeMode: RetrospectiveTimeMode) {
+    updatePlanner("retrospective", {
+      retrospectiveTimeMode,
+      result: retrospective.retrospectiveResults?.[retrospectiveTimeMode] ?? null,
+    });
+  }
+
+  function handleRetrospectiveResultChange(result: ScheduleResult | null) {
+    const timeMode = retrospective.retrospectiveTimeMode ?? "actual";
+    updatePlanner("retrospective", {
+      result,
+      retrospectiveResults: {
+        ...retrospective.retrospectiveResults,
+        [timeMode]: result,
+      },
+    });
+  }
+
+  function handleRetrospectiveResultsChange(results: Partial<Record<RetrospectiveTimeMode, ScheduleResult | null>>) {
+    const timeMode = retrospective.retrospectiveTimeMode ?? "actual";
+    updatePlanner("retrospective", {
+      result: results[timeMode] ?? null,
+      retrospectiveResults: results,
+    });
   }
 
   return (
@@ -301,7 +388,7 @@ export default function App() {
           readyDescription={`${ordPlannerVisibleFlights.length} ORD flights are loaded for ${ordPlanner.date}. Import the UA turns report, pick the date, then create guidance to use planned inbound arrivals as the earliest catering-ready time.`}
           createButtonLabel="Create ORD Guidance"
           assumptionTitle="UA Turns Logic"
-          assumptionDescription={ordPlannerAssumptionDescription(ordPlanner.startTimeMode ?? "dynamic", ordPlanner.maxStartTimes ?? 12)}
+          assumptionDescription={ordPlannerAssumptionDescription(ordPlanner.startTimeMode ?? "dynamic", ordPlanner.maxStartTimes ?? 12, ordPlanner.fixedStartTimes)}
           resourcePlanPosition="above-timeline"
           resourcePlanTitle="ORD Resource Guidance"
           resourcePlanDescription={ordPlannerResourcePlanDescription(ordPlanner.startTimeMode ?? "dynamic")}
@@ -312,7 +399,7 @@ export default function App() {
           showTimelineDriverRadio={false}
           exportButtonLabel="Export Excel"
           fixedStartResources={ordGoalStartResources}
-          fixedStartTimes={ordFixedStartTimes}
+          fixedStartTimes={ordPlanner.fixedStartTimes ?? ordFixedStartTimes}
           maxAllowedStartTimes={ordPlanner.maxStartTimes}
           startTimeMode={ordPlanner.startTimeMode}
           onDateChange={handleOrdPlannerDateChange}
@@ -323,7 +410,26 @@ export default function App() {
           onMaxAllowedStartTimesChange={handleOrdPlannerMaxStartTimesChange}
           onOperationTypeChange={(operationType) => handleOperationTypeChange("ord-planner", operationType)}
           onResultChange={(result) => updatePlanner("ord-planner", { result })}
+          onFixedStartTimesChange={handleOrdPlannerFixedStartTimesChange}
           onStartTimeModeChange={handleOrdPlannerStartTimeModeChange}
+        />
+      )}
+      {activeTab === "retrospective" && (
+        <RetrospectivePage
+          flights={retrospectiveVisibleFlights}
+          fixedStartResources={retrospective.fixedStartResources ?? defaultRetrospectiveStartResources}
+          operationType={retrospective.operationType}
+          rules={activeRules}
+          result={retrospective.retrospectiveResults?.[retrospective.retrospectiveTimeMode ?? "actual"] ?? retrospective.result}
+          results={retrospective.retrospectiveResults ?? {}}
+          selectedDate={retrospective.date}
+          timeMode={retrospective.retrospectiveTimeMode ?? "actual"}
+          onDateChange={handleRetrospectiveDateChange}
+          onFixedStartResourcesChange={handleRetrospectiveFixedStartResourcesChange}
+          onOperationTypeChange={(operationType) => handleOperationTypeChange("retrospective", operationType)}
+          onResultChange={handleRetrospectiveResultChange}
+          onResultsChange={handleRetrospectiveResultsChange}
+          onTimeModeChange={handleRetrospectiveTimeModeChange}
         />
       )}
       {activeTab === "dispatch" && (
@@ -346,27 +452,27 @@ export default function App() {
   );
 }
 
-const ordFixedStartTimes = ["02:30", "04:00", "05:30", "06:30", "08:30", "11:00", "13:00", "14:30", "16:30", "18:30"];
 const ordGoalStartResources = [
-  { startTime: "02:30", resources: 8 },
-  { startTime: "04:00", resources: 28 },
-  { startTime: "05:30", resources: 2 },
-  { startTime: "06:30", resources: 13 },
-  { startTime: "08:30", resources: 22 },
-  { startTime: "11:00", resources: 23 },
-  { startTime: "13:00", resources: 16 },
-  { startTime: "14:30", resources: 15 },
-  { startTime: "16:30", resources: 12 },
-  { startTime: "18:30", resources: 8 },
+  { startTime: "02:00", resources: 2 },
+  { startTime: "03:00", resources: 6 },
+  { startTime: "04:00", resources: 22 },
+  { startTime: "06:00", resources: 22 },
+  { startTime: "11:00", resources: 9 },
+  { startTime: "12:00", resources: 9 },
+  { startTime: "13:00", resources: 13 },
+  { startTime: "14:00", resources: 19 },
+  { startTime: "15:00", resources: 13 },
+  { startTime: "18:30", resources: 11 },
+  { startTime: "22:00", resources: 5 },
 ];
 
-function ordPlannerAssumptionDescription(mode: "dynamic" | "fixed" | "fixed-resource", maxStartTimes: number) {
+function ordPlannerAssumptionDescription(mode: "dynamic" | "fixed" | "fixed-resource", maxStartTimes: number, fixedStartTimes = ordFixedStartTimes) {
   const baseDescription = "This ORD plan reads outbound flight, destination, and departure time from the UA turns report, uses the aircraft shown on the turn, and treats the inbound arrival time as the earliest aircraft-ready constraint. Rows with a strip value are planned as protected strip work. It preserves a 30-minute lunch between shift hours 3 and 5";
   if (mode === "fixed-resource") {
     return `${baseDescription}, then uses the Goal row as fixed staffing by start wave: ${ordGoalStartResources.map((item) => `${item.startTime} ${item.resources}`).join(", ")}.`;
   }
   if (mode === "fixed") {
-    return `${baseDescription}, then models the current-state ORD start pattern exactly: ${ordFixedStartTimes.join(", ")}.`;
+    return `${baseDescription}, then models the current-state ORD start pattern exactly: ${fixedStartTimes.join(", ")}.`;
   }
   return `${baseDescription}, then chooses up to ${maxStartTimes} hour or half-hour start waves for driver, helper, and truck guidance.`;
 }
@@ -382,5 +488,5 @@ function flightMatchesSelectedSchedule(flight: FlightAssignment, airport: Airpor
 }
 
 function isPlannerTab(tab: AppTab): tab is PlannerTabId {
-  return tab === "planning" || tab === "resource-guide" || tab === "ord-planner";
+  return tab === "planning" || tab === "resource-guide" || tab === "retrospective" || tab === "ord-planner";
 }

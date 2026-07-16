@@ -1,45 +1,7 @@
 import type { OperationType, StaffMember, StaffRole, StaffStatus } from "../types/dispatch";
 
-const firstNames = [
-  "Alex",
-  "Jordan",
-  "Taylor",
-  "Morgan",
-  "Casey",
-  "Riley",
-  "Jamie",
-  "Avery",
-  "Cameron",
-  "Quinn",
-  "Drew",
-  "Reese",
-  "Parker",
-  "Rowan",
-  "Skyler",
-  "Hayden",
-  "Kendall",
-  "Emerson",
-  "Finley",
-  "Logan",
-];
-
-const featuredNames = ["Drew", "Chris", "Micheal", "Erik", "Nicole", "Carmen", "Mackie"];
-
-const lastNames = [
-  "Sample",
-  "Testman",
-  "Mocker",
-  "Placeholder",
-  "Training",
-  "Practice",
-  "Sandbox",
-  "Demo",
-  "Example",
-  "Pilot",
-];
-
 const shiftStarts = ["04:00", "05:00", "06:00", "07:00", "08:00", "10:00", "12:00", "14:00", "16:00", "18:00"];
-const locations = ["ORD", "SEA", "DFW", "DEN", "LAX", "IAH"] as const;
+const locations = ["ORD", "SAN", "SEA", "DFW", "DEN", "LAX", "IAH"] as const;
 
 const statusCycle: StaffStatus[] = [
   "Available",
@@ -74,7 +36,7 @@ export const mockStaffing: StaffMember[] = Array.from({ length: 200 }, (_, index
 
   return {
     id: `EMP-${String(number).padStart(4, "0")}`,
-    name: featuredNames[index] ?? `${firstNames[index % firstNames.length]} ${lastNames[Math.floor(index / firstNames.length) % lastNames.length]} ${number}`,
+    name: `Demo Staff ${String(number).padStart(3, "0")}`,
     role,
     location: locations[index % locations.length],
     operationType,

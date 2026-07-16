@@ -2,5 +2,6 @@
 
 declare const __APP_VERSION__: string;
 declare const __APP_VARIANT__: string;
+declare const __APP_BASE_PATH__: string;
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_TIMESTAMP__: string;
