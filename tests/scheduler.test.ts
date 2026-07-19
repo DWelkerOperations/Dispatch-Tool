@@ -391,7 +391,7 @@ describe("scheduler", () => {
     assert.equal(minutesBetween(finalServiceEnd, push.returnTime), 25);
   });
 
-  it("uses ORD 30 minute drive, 30 minute return, and 10 minutes between catered flights", () => {
+  it("uses ORD 30 minute drive, 30 minute return, and 15 minutes between catered flights", () => {
     const result = createPlanningSchedule(
       [
         flight({ id: "f1", flightNumber: "UA100", aircraft: "737", etd: "12:00", originAirport: "ORD" }),
@@ -406,8 +406,31 @@ describe("scheduler", () => {
 
     assert.ok(push);
     assert.equal(minutesBetween(push.kitchenDepartureTime, push.arriveFirstGateTime), 30);
-    assert.equal(minutesBetween(push.serviceEvents[0].serviceEnd, push.serviceEvents[1].serviceStart), 10);
+    assert.equal(minutesBetween(push.serviceEvents[0].serviceEnd, push.serviceEvents[1].serviceStart), 15);
     assert.equal(minutesBetween(push.serviceEvents[1].serviceEnd, push.returnTime), 30);
+  });
+
+  it("waits for the configured Turns-file buffer after inbound arrival", () => {
+    const result = createPlanningSchedule(
+      [
+        flight({
+          id: "turn1",
+          flightNumber: "UA365",
+          aircraft: "737",
+          etd: "12:00",
+          inboundEta: "11:05",
+          originAirport: "ORD",
+        }),
+      ],
+      baseDrivers,
+      baseHelpers,
+      baseTrucks,
+      { rules: planningRules, operationType: "mainline" },
+    );
+    const event = result.pushes[0]?.serviceEvents[0];
+
+    assert.ok(event);
+    assert.equal(event.serviceStart, "11:15");
   });
 
   it("plans international strip service from aircraft arrival with customs wait", () => {

@@ -11,6 +11,7 @@ export const planningRules: PlanningRules = {
   mainlineReturnMinutes: 15,
   expressReturnMinutes: 15,
   firstAircraftSetupMinutes: 45,
+  turnsInboundReadyBufferMinutes: 10,
   gateToGateMoveMinutes: 15,
   maxFlightsPerPush: 8,
   groupWindowMinutes: 105,
@@ -29,7 +30,7 @@ export const planningRules: PlanningRules = {
     ORD: {
       driveOutMinutes: 30,
       returnMinutes: 30,
-      gateToGateMoveMinutes: 10,
+      gateToGateMoveMinutes: 15,
       allowShiftStretch: true,
       lunchWindowStartHour: 3,
       lunchWindowEndHour: 5,

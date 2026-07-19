@@ -166,6 +166,7 @@ export function ThumbRulesPage({ rules, onRulesChange }: ThumbRulesPageProps) {
               <NumberField label="Earliest catering before departure" suffix="min" value={draftRules.earliestCateringBeforeDepartureMinutes} disabled={!isUnlocked} onChange={(value) => updateRule("earliestCateringBeforeDepartureMinutes", value)} />
               <NumberField label="Max kitchen departure before departure" suffix="min" value={draftRules.maxKitchenDepartureBeforeDepartureMinutes} disabled={!isUnlocked} onChange={(value) => updateRule("maxKitchenDepartureBeforeDepartureMinutes", value)} />
               <NumberField label="Load / dock prep" suffix="min" value={draftRules.firstAircraftSetupMinutes} disabled={!isUnlocked} onChange={(value) => updateRule("firstAircraftSetupMinutes", value)} />
+              <NumberField label="Turns inbound ready buffer" suffix="min" value={draftRules.turnsInboundReadyBufferMinutes} disabled={!isUnlocked} onChange={(value) => updateRule("turnsInboundReadyBufferMinutes", value)} />
             </div>
           )}
 
@@ -403,6 +404,7 @@ function validateRules(rules: PlanningRules): { ok: true } | { ok: false; error:
     ["Express drive out", rules.expressDriveOutMinutes],
     ["Express return", rules.expressReturnMinutes],
     ["Load / dock prep", rules.firstAircraftSetupMinutes],
+    ["Turns inbound ready buffer", rules.turnsInboundReadyBufferMinutes],
     ["Gate to gate move", rules.gateToGateMoveMinutes],
     ["Max flights per push", rules.maxFlightsPerPush],
     ["Group window", rules.groupWindowMinutes],

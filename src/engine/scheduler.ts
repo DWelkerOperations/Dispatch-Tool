@@ -756,7 +756,9 @@ function evaluateRoute(flights: Flight[], rules: PlanningRules) {
 function earliestServiceStart(flight: Flight, rules: PlanningRules) {
   if (isInternationalStripFlight(flight)) return timeToMinutes(flight.loadWindowStart);
   const windowStart = timeToMinutes(flight.loadWindowStart);
-  const inboundReady = validTime(flight.inboundEta) ? timeToMinutes(flight.inboundEta) + 10 : windowStart;
+  const inboundReady = validTime(flight.inboundEta)
+    ? timeToMinutes(flight.inboundEta) + rules.turnsInboundReadyBufferMinutes
+    : windowStart;
   if (flight.aircraftCategory === "regional") return Math.max(inboundReady, timeToMinutes(flight.etd) - rules.earliestCateringBeforeDepartureMinutes);
   return Math.max(windowStart, inboundReady);
 }

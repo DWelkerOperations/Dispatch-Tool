@@ -323,6 +323,7 @@ export type PlanningRules = {
   mainlineReturnMinutes: number;
   expressReturnMinutes: number;
   firstAircraftSetupMinutes: number;
+  turnsInboundReadyBufferMinutes: number;
   gateToGateMoveMinutes: number;
   maxFlightsPerPush: number;
   groupWindowMinutes: number;

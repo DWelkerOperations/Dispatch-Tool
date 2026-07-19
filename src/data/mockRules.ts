@@ -54,6 +54,7 @@ export function ruleItemsFromPlanningRules(rules = planningRules): RuleItem[] {
   { id: "r23", category: "Drive / return", setting: "Site gate-to-gate move", value: gateMoveOverrides.length > 0 ? gateMoveOverrides.join("; ") : "Optional site override for between-gate route time" },
   { id: "r24", category: "Drive / return", setting: "Unload release", value: "15 min after return; driver and truck unavailable until complete" },
   { id: "r25", category: "Food safety", setting: "Dock to final catering end", value: dockToFinalCateringText },
+  { id: "r26", category: "Aircraft readiness", setting: "Turns-file inbound arrival buffer", value: `Catering may start ${rules.turnsInboundReadyBufferMinutes} min after the inbound arrival time from the Turns file` },
   ];
 }
 
